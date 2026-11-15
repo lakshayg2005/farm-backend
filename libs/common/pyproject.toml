@@ -4,8 +4,11 @@ version = "0.1.0"
 description = "Shared code for all Farm Platform services"
 requires-python = ">=3.12"
 dependencies = [
+    "aio-pika>=9.4",
     "fastapi>=0.115",
     "pydantic-settings>=2.4",
+    "pyjwt[crypto]>=2.9",
+    "sqlalchemy[asyncio]>=2.0",
 ]
 
 [build-system]
