@@ -1475,7 +1475,7 @@
         ]
       },
       "patch": {
-        "description": "Owner (or admin) only.",
+        "description": "Owner (or admin) only. Changing the location does not move existing listings.",
         "operationId": "update_farm_farms__farm_id__patch",
         "parameters": [
           {
@@ -1730,7 +1730,7 @@
     },
     "/internal/stock/reserve": {
       "post": {
-        "description": "Reserve stock for an order, all items or none (called by order at checkout).\n\nIdempotent per `orderId`: repeating the call returns the same reservation. Errors:\n409 STOCK_UNAVAILABLE (`details` lists each short item), 404 LISTING_NOT_FOUND,\n409 LISTING_NOT_AVAILABLE (paused or archived).",
+        "description": "Reserve stock for an order, all items or none (called by order at checkout).\n\nIdempotent per `orderId`: repeating the call returns the same reservation. Errors:\n409 STOCK_UNAVAILABLE (`details` lists each short item), 404 LISTING_NOT_FOUND,\n409 LISTING_NOT_AVAILABLE (paused or archived), 409 ORDER_RELEASED (already released).",
         "operationId": "reserve_stock_internal_stock_reserve_post",
         "requestBody": {
           "content": {
@@ -2191,7 +2191,7 @@
         ]
       },
       "patch": {
-        "description": "Edit price or stock, pause or resume. Owner (or admin) only. Publishes `listing.updated`.",
+        "description": "Edit price or stock, pause or resume. Owner (or admin) only. Publishes `listing.updated`.\n\n`qtyAvailable` sets the stock; the row is locked so it can't race a checkout.",
         "operationId": "update_listing_listings__listing_id__patch",
         "parameters": [
           {

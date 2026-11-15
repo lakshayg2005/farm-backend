@@ -53,3 +53,27 @@ Regenerate the contract after changing routes or models:
 uv run python -c "import json; from catalog_service.main import app; \
 print(json.dumps(app.openapi(), indent=2, sort_keys=True))" > contracts/openapi/catalog.json
 ```
+
+## How stock stays correct
+
+- Reserve is one conditional `UPDATE ... SET qty_available = qty_available - :qty WHERE qty_available >= :qty`
+  per listing, in id order (no deadlocks), all items in one transaction (all or nothing).
+- `CHECK (qty_available >= 0)` makes overselling impossible even if code is wrong.
+- `stock_reservations` (one row per order) makes reserve and release idempotent: a retried reserve
+  returns the original items and prices; a release before/after reserve blocks a late reserve.
+- `stock_movements` is the ledger: for every listing, the sum of deltas equals `qty_available`.
+- ACTIVE flips to SOLD_OUT at 0 stock and back when stock returns (`listing.updated` both times).
+
+## Tests
+
+The tests need PostgreSQL + PostGIS (geo search and row locking can't be faked with SQLite):
+
+```bash
+docker run -d --rm --name farm-test-db -p 55433:5432 -e POSTGRES_USER=farm \
+    -e POSTGRES_PASSWORD=change-me -e POSTGRES_DB=farm_test postgis/postgis:16-3.4
+export TEST_DATABASE_URL=postgresql+asyncpg://farm:change-me@localhost:55433/farm_test
+uv run pytest services/catalog
+```
+
+The fixture drops and re-creates the `catalog` schema with the Alembic migrations. Without
+`TEST_DATABASE_URL` the tests are skipped locally and fail when `CI` is set.
