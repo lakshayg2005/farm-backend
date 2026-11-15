@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "media.processed",
+  "title": "media.processed",
+  "description": "Producer: media. A photo finished processing (READY), or was REJECTED / FAILED. Payload of the farm_common Event envelope. Raw GPS is never included; ask GET /internal/media/{id} if needed.",
+  "type": "object",
+  "required": [
+    "mediaId",
+    "ownerType",
+    "ownerId",
+    "uploadedBy",
+    "status",
+    "geoStatus",
+    "isGeoVerified"
+  ],
+  "properties": {
+    "mediaId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "ownerType": {
+      "enum": [
+        "FARM",
+        "LISTING",
+        "PLOT",
+        "RESERVATION",
+        "INSPECTION",
+        "DELIVERY",
+        "USER"
+      ]
+    },
+    "ownerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "uploadedBy": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "status": {
+      "enum": [
+        "READY",
+        "REJECTED",
+        "FAILED"
+      ]
+    },
+    "url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Public copy without EXIF/GPS"
+    },
+    "thumbUrl": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "width": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "height": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "takenAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "EXIF capture time (UTC)"
+    },
+    "geoStatus": {
+      "enum": [
+        "VERIFIED",
+        "TOO_FAR",
+        "NO_GPS",
+        "NO_REFERENCE",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "isGeoVerified": {
+      "type": "boolean"
+    },
+    "distanceM": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Metres from the farm/plot boundary (0 = inside)"
+    },
+    "rejectReason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "examples": [
+        "NOT_AN_IMAGE",
+        "TYPE_MISMATCH",
+        "PROCESSING_FAILED"
+      ]
+    }
+  }
+}
