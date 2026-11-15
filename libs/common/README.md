@@ -11,6 +11,7 @@ service; if something is missing, add it here (both team leads review changes).
 | `farm_common.errors` | `AppError(code, message, status)`, `NotFound`, `Conflict`, `Unauthorized`, `Forbidden` |
 | `farm_common.log` | `X-Correlation-ID` middleware, `get_correlation_id()`, JSON log formatter |
 | `farm_common.events` | `Event` envelope, `RabbitEventBus` (publish/subscribe with retries + dead-letter queue), `InMemoryEventBus` for tests |
+| `farm_common.schemas` | `ApiModel`: base for request/response bodies, camelCase JSON (`homeLat`) and snake_case Python |
 | `farm_common.outbox` | `OutboxMixin`, `ProcessedEventMixin`, `add_event`, `run_relay`, `mark_processed` |
 
 ## Protecting a route

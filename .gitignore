@@ -17,3 +17,6 @@ build/
 .vscode/
 .idea/
 node_modules/
+
+# JWT keys and other local secrets
+secrets/
