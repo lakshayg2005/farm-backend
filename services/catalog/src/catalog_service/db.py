@@ -2,10 +2,12 @@
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
 from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     Date,
     DateTime,
@@ -18,7 +20,7 @@ from sqlalchemy import (
     Uuid,
     func,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from farm_common.outbox import OutboxMixin, ProcessedEventMixin
@@ -101,9 +103,11 @@ class Listing(Base):
     crop: Mapped[Crop] = relationship(lazy="joined", innerjoin=True)
 
 
-# Distance search casts to geography, so index that expression: a plain GiST index on the geometry
-# column is not used by ST_DWithin(geography, ...).
-Index("listings_pickup_gix", func.geography(Listing.pickup_location), postgresql_using="gist")
+# HLD section 10: GiST index on pickup_location (bounding-box and nearest-neighbour queries).
+Index("listings_pickup_gix", Listing.pickup_location, postgresql_using="gist")
+# The distance search runs ST_DWithin on geography(pickup_location), which the plain index above
+# can't serve, so the same column is also indexed as geography.
+Index("listings_pickup_geog_gix", func.geography(Listing.pickup_location), postgresql_using="gist")
 
 
 class StockReservation(Base):
@@ -129,6 +133,19 @@ class StockMovement(Base):
     reason: Mapped[str] = mapped_column(String(12))  # INITIAL | ADJUSTMENT | RESERVE | RELEASE
     # Price at reservation time, so a repeated reserve call answers with the same price.
     unit_price: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class IdempotencyKey(Base):
+    """First response to a write sent with an Idempotency-Key, replayed on retries (HLD 15)."""
+
+    __tablename__ = "idempotency_keys"
+
+    user_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    status_code: Mapped[int]
+    response: Mapped[dict[str, Any]] = mapped_column(JSON().with_variant(JSONB(), "postgresql"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

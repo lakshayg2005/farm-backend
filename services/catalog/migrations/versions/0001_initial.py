@@ -1,4 +1,4 @@
-"""catalog: crops, farms, produce listings, stock movements and reservations, outbox
+"""catalog: crops, farms, produce listings, stock movements and reservations, idempotency, outbox
 
 Revision ID: 0001_initial
 Revises:
@@ -146,9 +146,17 @@ def upgrade() -> None:
     op.create_index(
         "listings_status_crop_ix", "produce_listings", ["status", "crop_id"], schema=SCHEMA
     )
-    # Distance search runs ST_DWithin on geography(pickup_location): index that expression.
+    # HLD section 10: GiST index on pickup_location (bounding box, nearest neighbour).
     op.create_index(
         "listings_pickup_gix",
+        "produce_listings",
+        ["pickup_location"],
+        schema=SCHEMA,
+        postgresql_using="gist",
+    )
+    # The distance search runs ST_DWithin on geography(pickup_location): index that too.
+    op.create_index(
+        "listings_pickup_geog_gix",
         "produce_listings",
         [sa.text("geography(pickup_location)")],
         schema=SCHEMA,
@@ -187,6 +195,17 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "idempotency_keys",
+        sa.Column("user_id", sa.Uuid(), primary_key=True),
+        sa.Column("key", sa.String(128), primary_key=True),
+        sa.Column("request_hash", sa.String(64), nullable=False),
+        sa.Column("status_code", sa.Integer(), nullable=False),
+        sa.Column("response", postgresql.JSONB(), nullable=False),
+        sa.Column("created_at", TS, nullable=False, server_default=sa.func.now()),
+        schema=SCHEMA,
+    )
+
+    op.create_table(
         "outbox",
         sa.Column("id", sa.Uuid(), primary_key=True),
         sa.Column("type", sa.String(100), nullable=False),
@@ -212,6 +231,7 @@ def downgrade() -> None:
     for table in (
         "processed_events",
         "outbox",
+        "idempotency_keys",
         "stock_movements",
         "stock_reservations",
         "produce_listings",

@@ -34,7 +34,7 @@ from catalog_service.settings import CatalogSettings, get_catalog_settings
 from farm_common.settings import get_settings
 
 SERVICE_DIR = Path(__file__).resolve().parents[1]
-TABLES = "outbox, processed_events, stock_movements, stock_reservations, produce_listings, farms"
+TABLES = "outbox, processed_events, idempotency_keys, stock_movements, stock_reservations, produce_listings, farms"
 
 _KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 PRIVATE_KEY = _KEY.private_bytes(

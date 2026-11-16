@@ -2,12 +2,12 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Response, status
 from geoalchemy2.shape import from_shape
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from catalog_service import service
+from catalog_service import idempotency, service
 from catalog_service.database import get_session
 from catalog_service.db import Crop, Farm, Listing, StockMovement
 from catalog_service.geo import area_to_multipolygon
@@ -18,11 +18,12 @@ from catalog_service.schemas import (
     FarmPage,
     FarmUpdate,
     Grade,
+    ListingFeature,
+    ListingFeatureCollection,
     ListingIn,
     ListingOut,
     ListingPage,
-    ListingSearchHit,
-    ListingSearchPage,
+    ListingSearchProperties,
     ListingStatus,
     ListingUpdate,
     SearchSort,
@@ -35,6 +36,15 @@ farmer_only = require_roles(Role.FARMER)
 farmer_or_admin = require_roles(Role.FARMER, Role.ADMIN)
 
 LIMIT = Query(default=20, ge=1, le=100)
+# HLD section 15: write calls accept an Idempotency-Key, so a retry never creates a duplicate.
+IDEMPOTENCY_KEY = Header(
+    default=None,
+    alias="Idempotency-Key",
+    min_length=8,
+    max_length=128,
+    description="Optional. Repeating a request with the same key returns the first response; "
+    "the same key with a different body gives 409 IDEMPOTENCY_KEY_REUSED.",
+)
 GRADES_AT_LEAST = {Grade.A: ["A"], Grade.B: ["A", "B"], Grade.C: ["A", "B", "C"]}
 
 
@@ -68,12 +78,16 @@ async def list_crops(session: AsyncSession = Depends(get_session)) -> list[CropO
 # ---- farms ---------------------------------------------------------------------------------
 
 
-@router.post("/farms", status_code=status.HTTP_201_CREATED, tags=["farms"])
+@router.post("/farms", status_code=status.HTTP_201_CREATED, tags=["farms"], response_model=FarmOut)
 async def create_farm(
     body: FarmIn,
+    idempotency_key: str | None = IDEMPOTENCY_KEY,
     user: CurrentUser = Depends(farmer_only),
     session: AsyncSession = Depends(get_session),
-) -> FarmOut:
+) -> FarmOut | Response:
+    digest = idempotency.request_hash("POST /farms", body)
+    if earlier := await idempotency.replay(session, user.id, idempotency_key, digest):
+        return earlier
     farm = Farm(
         farmer_id=UUID(user.id),
         name=body.name,
@@ -86,9 +100,13 @@ async def create_farm(
         ),
     )
     session.add(farm)
-    await session.commit()
+    await session.flush()
     await session.refresh(farm)
-    return service.farm_out(farm)
+    out = service.farm_out(farm)
+    idempotency.remember(session, user.id, idempotency_key, digest, 201, out)
+    if winner := await idempotency.commit_or_replay(session, user.id, idempotency_key, digest):
+        return winner
+    return out
 
 
 @router.get("/farms/mine", tags=["farms"])
@@ -165,16 +183,23 @@ async def farm_listings(
 # ---- listings ------------------------------------------------------------------------------
 
 
-@router.post("/listings", status_code=status.HTTP_201_CREATED, tags=["listings"])
+@router.post(
+    "/listings", status_code=status.HTTP_201_CREATED, tags=["listings"], response_model=ListingOut
+)
 async def create_listing(
     body: ListingIn,
+    idempotency_key: str | None = IDEMPOTENCY_KEY,
     user: CurrentUser = Depends(farmer_only),
     session: AsyncSession = Depends(get_session),
-) -> ListingOut:
+) -> ListingOut | Response:
     """Publish produce on one of your farms. Publishes `listing.published`.
 
-    Errors: 404 FARM_NOT_FOUND, 403 NOT_FARM_OWNER, 422 UNKNOWN_CROP.
+    Errors: 404 FARM_NOT_FOUND, 403 NOT_FARM_OWNER, 422 UNKNOWN_CROP,
+    409 IDEMPOTENCY_KEY_REUSED.
     """
+    digest = idempotency.request_hash("POST /listings", body)
+    if earlier := await idempotency.replay(session, user.id, idempotency_key, digest):
+        return earlier
     farm = await service.get_farm(session, body.farm_id)
     service.ensure_owner(user, farm.farmer_id, "farm")
     if await session.get(Crop, body.crop_id) is None:
@@ -203,14 +228,17 @@ async def create_listing(
     session.add(StockMovement(listing_id=listing.id, delta=qty, reason="INITIAL"))
     await session.refresh(listing)
     service.publish(session, "listing.published", service.listing_payload(listing))
-    await session.commit()
-    return service.listing_out(listing)
+    out = service.listing_out(listing)
+    idempotency.remember(session, user.id, idempotency_key, digest, 201, out)
+    if winner := await idempotency.commit_or_replay(session, user.id, idempotency_key, digest):
+        return winner
+    return out
 
 
 @router.get("/listings/mine", tags=["listings"])
 async def my_listings(
     status_filter: ListingStatus | None = Query(default=None, alias="status"),
-    farm_id: UUID | None = Query(default=None, alias="farmId"),
+    farm_id: UUID | None = None,
     limit: int = LIMIT,
     cursor: str | None = None,
     user: CurrentUser = Depends(farmer_only),
@@ -231,10 +259,10 @@ async def my_listings(
 async def search_listings(
     lat: float = Query(ge=-90, le=90),
     lng: float = Query(ge=-180, le=180),
-    radius_km: float = Query(default=10, gt=0, le=100, alias="radiusKm"),
+    radius_km: float = Query(default=10, gt=0, le=100),
     crop: str | None = Query(default=None, description="Crop id, e.g. 'tomato'"),
-    min_price: float | None = Query(default=None, ge=0, alias="minPrice"),
-    max_price: float | None = Query(default=None, ge=0, alias="maxPrice"),
+    min_price: float | None = Query(default=None, ge=0),
+    max_price: float | None = Query(default=None, ge=0),
     grade: Grade | None = Query(
         default=None, description="Minimum grade: B returns A and B (ungraded listings excluded)"
     ),
@@ -243,8 +271,12 @@ async def search_listings(
     limit: int = Query(default=20, ge=1, le=50),
     cursor: str | None = None,
     session: AsyncSession = Depends(get_session),
-) -> ListingSearchPage:
-    """Produce near a point (V1). Only ACTIVE listings with stock; `distanceM` is in metres."""
+) -> ListingFeatureCollection:
+    """Produce near a point (V1), as a GeoJSON FeatureCollection (HLD sections 13 and 15).
+
+    Each feature's geometry is the pickup point and its properties are the listing plus
+    `distanceM` (metres). Only ACTIVE listings with stock.
+    """
     here = func.geography(func.ST_SetSRID(func.ST_MakePoint(lng, lat), 4326))
     # Same expression as the listings_pickup_gix index, so the index is used.
     where = func.geography(Listing.pickup_location)
@@ -272,10 +304,14 @@ async def search_listings(
 
     offset = _offset(cursor)
     rows = (await session.execute(query.order_by(*order).offset(offset).limit(limit + 1))).all()
-    return ListingSearchPage(
-        items=[
-            ListingSearchHit.model_validate(
-                {**service.listing_fields(listing), "distance_m": round(dist, 1)}
+    return ListingFeatureCollection(
+        features=[
+            ListingFeature(
+                id=listing.id,
+                geometry=service.point_from_db(listing.pickup_location),
+                properties=ListingSearchProperties.model_validate(
+                    {**service.listing_fields(listing), "distance_m": round(dist, 1)}
+                ),
             )
             for listing, dist in rows[:limit]
         ],

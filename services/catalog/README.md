@@ -20,9 +20,12 @@ cd services/catalog && uv run alembic upgrade head
 
 ## API (contract: [`contracts/openapi/catalog.json`](../../contracts/openapi/catalog.json))
 
-Behind the gateway every route below is under `/api/v1/catalog`. JSON is camelCase; locations are
-GeoJSON (`{"type": "Point", "coordinates": [lng, lat]}`). Lists use `?cursor&limit` and return
-`{"items": [...], "nextCursor": "..."}`.
+Behind the gateway every route below is under `/api/v1/catalog` (routes as in HLD section 15).
+JSON bodies are camelCase; query parameters are as the HLD writes them (`radius_km`, `max_price`).
+Locations are GeoJSON (`{"type": "Point", "coordinates": [lng, lat]}`), and search returns a
+GeoJSON `FeatureCollection` (HLD section 13). Other lists use `?cursor&limit` and return
+`{"items": [...], "nextCursor": "..."}`. `POST /farms` and `POST /listings` accept an
+`Idempotency-Key` header (HLD sections 6 and 15).
 
 | Method | Route | Who | Purpose |
 | --- | --- | --- | --- |
@@ -32,8 +35,8 @@ GeoJSON (`{"type": "Point", "coordinates": [lng, lat]}`). Lists use `?cursor&lim
 | GET, PATCH | `/farms/{id}` | Public / owner | Farm details, edit |
 | GET | `/farms/{id}/listings` | Public | A farm's active listings |
 | POST | `/listings` | Farmer | Publish produce (publishes `listing.published`) |
-| GET | `/listings/mine?status&farmId` | Farmer | My listings in every status |
-| GET | `/listings/search?lat&lng&radiusKm&crop&minPrice&maxPrice&grade&organic&sort` | Public | Produce near a point, with `distanceM` |
+| GET | `/listings/mine?status&farm_id` | Farmer | My listings in every status |
+| GET | `/listings/search?lat&lng&radius_km&crop&min_price&max_price&grade&organic&sort` | Public | Produce near a point: GeoJSON features with `distanceM` |
 | GET, PATCH, DELETE | `/listings/{id}` | Public / owner | Details, edit price/stock/pause (`listing.updated`), archive |
 
 Internal (Docker network only, never through the gateway):
@@ -63,6 +66,10 @@ print(json.dumps(app.openapi(), indent=2, sort_keys=True))" > contracts/openapi/
   returns the original items and prices; a release before/after reserve blocks a late reserve.
 - `stock_movements` is the ledger: for every listing, the sum of deltas equals `qty_available`.
 - ACTIVE flips to SOLD_OUT at 0 stock and back when stock returns (`listing.updated` both times).
+
+Creating farms and listings with an `Idempotency-Key` stores the first response in
+`idempotency_keys` (per user), in the same transaction as the new row; a retry gets that response
+back, and a parallel duplicate loses on the primary key and also gets it back.
 
 ## Tests
 
