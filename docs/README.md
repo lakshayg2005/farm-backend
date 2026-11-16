@@ -1,3 +1,5 @@
 # docs
 
-Architecture notes and decision records. The full high-level design is shared by the team leads.
+Architecture notes and decision records.
+
+- [HLD.md](HLD.md): high-level design and team plan (V1 + V2)

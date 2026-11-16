@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "listing.updated",
+  "title": "listing.updated",
+  "description": "Producer: catalog. A listing changed: price, stock, grade, status (PAUSED, SOLD_OUT, ARCHIVED) or details. Same payload as listing.published, with the new values.",
+  "type": "object",
+  "required": [
+    "listingId",
+    "farmId",
+    "farmerId",
+    "cropId",
+    "cropName",
+    "qtyAvailable",
+    "unit",
+    "pricePerUnit",
+    "status",
+    "pickupLocation"
+  ],
+  "properties": {
+    "listingId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "farmId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "farmerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "cropId": {
+      "type": "string",
+      "examples": [
+        "tomato"
+      ]
+    },
+    "cropName": {
+      "type": "string"
+    },
+    "variety": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "qtyAvailable": {
+      "type": "number",
+      "minimum": 0
+    },
+    "unit": {
+      "enum": [
+        "kg",
+        "quintal",
+        "dozen",
+        "piece",
+        "bunch",
+        "litre"
+      ]
+    },
+    "pricePerUnit": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "grade": {
+      "enum": [
+        "A",
+        "B",
+        "C",
+        null
+      ]
+    },
+    "isOrganic": {
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "ACTIVE",
+        "PAUSED",
+        "SOLD_OUT",
+        "ARCHIVED"
+      ]
+    },
+    "pickupLocation": {
+      "type": "object",
+      "description": "GeoJSON Point, coordinates [lng, lat]",
+      "required": [
+        "type",
+        "coordinates"
+      ],
+      "properties": {
+        "type": {
+          "const": "Point"
+        },
+        "coordinates": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "mediaIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    }
+  }
+}
