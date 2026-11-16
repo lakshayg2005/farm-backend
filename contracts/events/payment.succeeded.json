@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "PaymentKind": {
+      "description": "What a payment is for (HLD section 10). The land service pays reservation deposits through\nthis API too. REFUND rows are written by the order service, never requested by a client.",
+      "enum": [
+        "FULL",
+        "DEPOSIT",
+        "BALANCE",
+        "REFUND"
+      ],
+      "title": "PaymentKind",
+      "type": "string"
+    }
+  },
+  "description": "Payload of the payment.succeeded event (produced by the order service).",
+  "properties": {
+    "paymentId": {
+      "format": "uuid",
+      "title": "Paymentid",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/PaymentKind"
+    },
+    "amount": {
+      "title": "Amount",
+      "type": "number"
+    },
+    "currency": {
+      "title": "Currency",
+      "type": "string"
+    },
+    "customerId": {
+      "format": "uuid",
+      "title": "Customerid",
+      "type": "string"
+    },
+    "referenceId": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Referenceid"
+    },
+    "checkoutId": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Checkoutid"
+    },
+    "orderIds": {
+      "default": [],
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Orderids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "paymentId",
+    "kind",
+    "amount",
+    "currency",
+    "customerId"
+  ],
+  "title": "payment.succeeded",
+  "type": "object"
+}

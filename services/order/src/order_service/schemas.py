@@ -265,3 +265,7 @@ class ErrorBody(ApiModel):
 
 class ErrorResponse(ApiModel):
     error: ErrorBody
+
+
+class CancelRequest(ApiModel):
+    reason: str | None = Field(default=None, max_length=500, examples=["Ordered by mistake"])

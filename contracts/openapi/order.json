@@ -69,7 +69,7 @@
             }
           },
           "403": {
-            "description": "The token does not have the customer role",
+            "description": "The token does not have the required role",
             "content": {
               "application/json": {
                 "schema": {
@@ -102,7 +102,7 @@
           "orders"
         ],
         "summary": "Checkout: place one order per farm",
-        "description": "The cart lives in the app; its items are sent here. The Idempotency-Key header is required: repeating a request with the same key returns the first result instead of creating new orders.",
+        "description": "The cart lives in the app; its items are sent here. The Idempotency-Key header is required: repeating a request with the same key and body returns the first result instead of creating new orders. After a PAYMENT_FAILED (402) use a new key to retry.",
         "operationId": "checkout_orders_post",
         "security": [
           {
@@ -154,7 +154,7 @@
             }
           },
           "403": {
-            "description": "The token does not have the customer role",
+            "description": "The token does not have the required role",
             "content": {
               "application/json": {
                 "schema": {
@@ -173,8 +173,28 @@
               }
             }
           },
+          "404": {
+            "description": "PAYMENT_INTENT_NOT_FOUND or LISTING_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "409": {
-            "description": "STOCK_UNAVAILABLE: details lists the listing ids that ran out",
+            "description": "STOCK_UNAVAILABLE (details: listingId, requested, available), LISTING_NOT_AVAILABLE, PAYMENT_INTENT_USED, IDEMPOTENCY_KEY_REUSED or IDEMPOTENCY_IN_PROGRESS",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CATALOG_UNAVAILABLE",
             "content": {
               "application/json": {
                 "schema": {
@@ -199,7 +219,8 @@
         "tags": [
           "orders"
         ],
-        "summary": "List my orders, newest first (cursor pagination)",
+        "summary": "List orders, newest first (cursor pagination)",
+        "description": "role=customer lists what I bought, role=farmer the orders of my farms. Without role, customers get their own orders, farmers the orders of their farms, admins all orders.",
         "operationId": "list_orders_orders_get",
         "security": [
           {
@@ -294,7 +315,7 @@
             }
           },
           "403": {
-            "description": "The token does not have the customer role",
+            "description": "The token does not have the required role",
             "content": {
               "application/json": {
                 "schema": {
@@ -362,7 +383,7 @@
             }
           },
           "403": {
-            "description": "The token does not have the customer role",
+            "description": "The token does not have the required role",
             "content": {
               "application/json": {
                 "schema": {
@@ -372,7 +393,202 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND",
+            "description": "ORDER_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/{order_id}/pack": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Farmer: mark a confirmed order as packed",
+        "description": "Moves CONFIRMED to PACKED and publishes order.packed, which starts the inspection.",
+        "operationId": "pack_order_orders__order_id__pack_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid access token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token does not have the required role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ORDER_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "INVALID_STATUS_TRANSITION",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/{order_id}/cancel": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Cancel an order before it is handed to logistics",
+        "description": "The customer, the farm's owner or an admin can cancel. Publishes order.cancelled (catalog releases the stock) and records a REFUND payment.",
+        "operationId": "cancel_order_orders__order_id__cancel_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CancelRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid access token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token does not have the required role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ORDER_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ORDER_NOT_CANCELLABLE",
             "content": {
               "application/json": {
                 "schema": {
@@ -450,7 +666,7 @@
             }
           },
           "403": {
-            "description": "The token does not have the customer role",
+            "description": "The token does not have the required role",
             "content": {
               "application/json": {
                 "schema": {
@@ -460,7 +676,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND",
+            "description": "ORDER_NOT_FOUND",
             "content": {
               "application/json": {
                 "schema": {
@@ -495,6 +711,27 @@
   },
   "components": {
     "schemas": {
+      "CancelRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "examples": [
+              "Ordered by mistake"
+            ]
+          }
+        },
+        "type": "object",
+        "title": "CancelRequest"
+      },
       "Checkout": {
         "properties": {
           "id": {

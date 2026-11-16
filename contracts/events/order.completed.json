@@ -1,0 +1,279 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "DeliveryAddress": {
+      "description": "Where the order is delivered. `location` is required: logistics pools drops that are close.",
+      "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "examples": [
+            "Home"
+          ],
+          "title": "Label"
+        },
+        "line1": {
+          "examples": [
+            "12 Green Park"
+          ],
+          "title": "Line1",
+          "type": "string"
+        },
+        "line2": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line2"
+        },
+        "city": {
+          "examples": [
+            "Jaipur"
+          ],
+          "title": "City",
+          "type": "string"
+        },
+        "pincode": {
+          "examples": [
+            "302001"
+          ],
+          "pattern": "^\\d{6}$",
+          "title": "Pincode",
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/GeoPoint"
+        },
+        "contactPhone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "examples": [
+            "+919999999999"
+          ],
+          "title": "Contactphone"
+        }
+      },
+      "required": [
+        "line1",
+        "city",
+        "pincode",
+        "location"
+      ],
+      "title": "DeliveryAddress",
+      "type": "object"
+    },
+    "EventItem": {
+      "properties": {
+        "listingId": {
+          "format": "uuid",
+          "title": "Listingid",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "qty": {
+          "title": "Qty",
+          "type": "number"
+        },
+        "unitPrice": {
+          "title": "Unitprice",
+          "type": "number"
+        },
+        "pickupLocation": {
+          "$ref": "#/$defs/GeoPoint"
+        }
+      },
+      "required": [
+        "listingId",
+        "name",
+        "unit",
+        "qty",
+        "unitPrice",
+        "pickupLocation"
+      ],
+      "title": "EventItem",
+      "type": "object"
+    },
+    "GeoPoint": {
+      "description": "A GeoJSON Point, the same JSON the catalog uses: `{\"type\": \"Point\", \"coordinates\": [lng, lat]}`.",
+      "properties": {
+        "type": {
+          "const": "Point",
+          "default": "Point",
+          "title": "Type",
+          "type": "string"
+        },
+        "coordinates": {
+          "examples": [
+            [
+              75.7873,
+              26.9124
+            ]
+          ],
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "maximum": 180,
+              "minimum": -180,
+              "type": "number"
+            },
+            {
+              "maximum": 90,
+              "minimum": -90,
+              "type": "number"
+            }
+          ],
+          "title": "Coordinates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "coordinates"
+      ],
+      "title": "GeoPoint",
+      "type": "object"
+    },
+    "OrderStatus": {
+      "description": "Lifecycle of a per-farm order (HLD section 11).\n\nPLACED -> CONFIRMED -> PACKED -> QC_PASSED -> READY_FOR_DISPATCH is issue #13. After that\nlogistics drives it: POOLED (pool assigned), IN_TRANSIT (picked up), DELIVERED, COMPLETED.",
+      "enum": [
+        "PLACED",
+        "CONFIRMED",
+        "PACKED",
+        "QC_PASSED",
+        "READY_FOR_DISPATCH",
+        "POOLED",
+        "IN_TRANSIT",
+        "DELIVERED",
+        "COMPLETED",
+        "CANCELLED"
+      ],
+      "title": "OrderStatus",
+      "type": "string"
+    },
+    "OrderType": {
+      "description": "PRODUCE is the V1 purchase of listed produce. HARVEST is added by the V2 harvest flow.",
+      "enum": [
+        "PRODUCE",
+        "HARVEST"
+      ],
+      "title": "OrderType",
+      "type": "string"
+    }
+  },
+  "description": "Payload of the order.completed event (produced by the order service).",
+  "properties": {
+    "orderId": {
+      "format": "uuid",
+      "title": "Orderid",
+      "type": "string"
+    },
+    "checkoutId": {
+      "format": "uuid",
+      "title": "Checkoutid",
+      "type": "string"
+    },
+    "customerId": {
+      "format": "uuid",
+      "title": "Customerid",
+      "type": "string"
+    },
+    "farmId": {
+      "format": "uuid",
+      "title": "Farmid",
+      "type": "string"
+    },
+    "farmOwnerId": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Farmownerid"
+    },
+    "orderType": {
+      "$ref": "#/$defs/OrderType"
+    },
+    "status": {
+      "$ref": "#/$defs/OrderStatus"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/EventItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "subtotal": {
+      "title": "Subtotal",
+      "type": "number"
+    },
+    "deliveryFee": {
+      "title": "Deliveryfee",
+      "type": "number"
+    },
+    "total": {
+      "title": "Total",
+      "type": "number"
+    },
+    "currency": {
+      "title": "Currency",
+      "type": "string"
+    },
+    "deliveryAddress": {
+      "$ref": "#/$defs/DeliveryAddress"
+    },
+    "deliveryDate": {
+      "format": "date",
+      "title": "Deliverydate",
+      "type": "string"
+    }
+  },
+  "required": [
+    "orderId",
+    "checkoutId",
+    "customerId",
+    "farmId",
+    "orderType",
+    "status",
+    "items",
+    "subtotal",
+    "deliveryFee",
+    "total",
+    "currency",
+    "deliveryAddress",
+    "deliveryDate"
+  ],
+  "title": "order.completed",
+  "type": "object"
+}
