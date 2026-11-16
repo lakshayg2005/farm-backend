@@ -6,7 +6,7 @@ build against the spec. The real implementation replaces the bodies in issue #10
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Response, status
 
 from catalog_service import examples
 from catalog_service.schemas import (
@@ -16,10 +16,10 @@ from catalog_service.schemas import (
     FarmPage,
     FarmUpdate,
     Grade,
+    ListingFeatureCollection,
     ListingIn,
     ListingOut,
     ListingPage,
-    ListingSearchPage,
     ListingStatus,
     ListingUpdate,
     SearchSort,
@@ -31,6 +31,15 @@ farmer_only = require_roles(Role.FARMER)
 farmer_or_admin = require_roles(Role.FARMER, Role.ADMIN)
 
 LIMIT = Query(default=20, ge=1, le=100)
+# HLD section 15: write calls accept an Idempotency-Key, so a retry never creates a duplicate.
+IDEMPOTENCY_KEY = Header(
+    default=None,
+    alias="Idempotency-Key",
+    min_length=8,
+    max_length=128,
+    description="Optional. Repeating a request with the same key returns the first response; "
+    "the same key with a different body gives 409 IDEMPOTENCY_KEY_REUSED.",
+)
 
 
 @router.get("/crops", tags=["crops"])
@@ -43,7 +52,11 @@ async def list_crops() -> list[CropOut]:
 
 
 @router.post("/farms", status_code=status.HTTP_201_CREATED, tags=["farms"])
-async def create_farm(body: FarmIn, user: CurrentUser = Depends(farmer_only)) -> FarmOut:
+async def create_farm(
+    body: FarmIn,
+    idempotency_key: str | None = IDEMPOTENCY_KEY,
+    user: CurrentUser = Depends(farmer_only),
+) -> FarmOut:
     return examples.farm(farmer_id=UUID(user.id), **body.model_dump(exclude_none=True))
 
 
@@ -82,10 +95,15 @@ async def farm_listings(
 
 
 @router.post("/listings", status_code=status.HTTP_201_CREATED, tags=["listings"])
-async def create_listing(body: ListingIn, user: CurrentUser = Depends(farmer_only)) -> ListingOut:
+async def create_listing(
+    body: ListingIn,
+    idempotency_key: str | None = IDEMPOTENCY_KEY,
+    user: CurrentUser = Depends(farmer_only),
+) -> ListingOut:
     """Publish produce on one of your farms. Publishes `listing.published`.
 
-    Errors: 404 FARM_NOT_FOUND, 403 NOT_FARM_OWNER, 422 UNKNOWN_CROP.
+    Errors: 404 FARM_NOT_FOUND, 403 NOT_FARM_OWNER, 422 UNKNOWN_CROP,
+    409 IDEMPOTENCY_KEY_REUSED.
     """
     fields = body.model_dump(exclude_none=True)
     return examples.listing(farmer_id=UUID(user.id), grade=None, **fields)
@@ -94,7 +112,7 @@ async def create_listing(body: ListingIn, user: CurrentUser = Depends(farmer_onl
 @router.get("/listings/mine", tags=["listings"])
 async def my_listings(
     status_filter: ListingStatus | None = Query(default=None, alias="status"),
-    farm_id: UUID | None = Query(default=None, alias="farmId"),
+    farm_id: UUID | None = None,
     limit: int = LIMIT,
     cursor: str | None = None,
     user: CurrentUser = Depends(farmer_only),
@@ -107,10 +125,10 @@ async def my_listings(
 async def search_listings(
     lat: float = Query(ge=-90, le=90),
     lng: float = Query(ge=-180, le=180),
-    radius_km: float = Query(default=10, gt=0, le=100, alias="radiusKm"),
+    radius_km: float = Query(default=10, gt=0, le=100),
     crop: str | None = Query(default=None, description="Crop id, e.g. 'tomato'"),
-    min_price: float | None = Query(default=None, ge=0, alias="minPrice"),
-    max_price: float | None = Query(default=None, ge=0, alias="maxPrice"),
+    min_price: float | None = Query(default=None, ge=0),
+    max_price: float | None = Query(default=None, ge=0),
     grade: Grade | None = Query(
         default=None, description="Minimum grade: B returns A and B (ungraded listings excluded)"
     ),
@@ -118,9 +136,13 @@ async def search_listings(
     sort: SearchSort = SearchSort.DISTANCE,
     limit: int = Query(default=20, ge=1, le=50),
     cursor: str | None = None,
-) -> ListingSearchPage:
-    """Produce near a point (V1). Only ACTIVE listings with stock; `distanceM` is in metres."""
-    return ListingSearchPage(items=[examples.search_hit()], next_cursor=None)
+) -> ListingFeatureCollection:
+    """Produce near a point (V1), as a GeoJSON FeatureCollection (HLD sections 13 and 15).
+
+    Each feature's geometry is the pickup point and its properties are the listing plus
+    `distanceM` (metres). Only ACTIVE listings with stock.
+    """
+    return ListingFeatureCollection(features=[examples.search_feature()], next_cursor=None)
 
 
 @router.get("/listings/{listing_id}", tags=["listings"])

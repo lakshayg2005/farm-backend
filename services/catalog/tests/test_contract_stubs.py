@@ -63,7 +63,9 @@ async def test_listing_routes(client, farmer):
         "pricePerUnit": 30,
         "harvestDate": "2026-11-14",
     }
-    created = await client.post("/listings", json=listing, headers=farmer)
+    created = await client.post(
+        "/listings", json=listing, headers={**farmer, "Idempotency-Key": "listing-0001"}
+    )
     assert created.status_code == 201, created.text
     assert created.json()["grade"] is None
 
@@ -89,13 +91,17 @@ async def test_cannot_set_sold_out_or_archived_by_patch(client, farmer):
 async def test_search_returns_distance(client):
     response = await client.get(
         "/listings/search",
-        params={"lat": 21.25, "lng": 81.6, "radiusKm": 15, "crop": "tomato", "grade": "B"},
+        params={"lat": 21.25, "lng": 81.6, "radius_km": 15, "crop": "tomato", "grade": "B"},
     )
 
     assert response.status_code == 200
-    hit = response.json()["items"][0]
-    assert hit["distanceM"] > 0
-    assert hit["pickupLocation"]["type"] == "Point"
+    body = response.json()
+    assert body["type"] == "FeatureCollection"
+    feature = body["features"][0]
+    assert feature["type"] == "Feature"
+    assert feature["geometry"]["type"] == "Point"
+    assert feature["properties"]["distanceM"] > 0
+    assert feature["id"] == feature["properties"]["id"]
 
 
 async def test_search_requires_a_point(client):

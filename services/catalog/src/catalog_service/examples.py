@@ -9,8 +9,9 @@ from catalog_service.schemas import (
     CropOut,
     FarmOut,
     Grade,
+    ListingFeature,
     ListingOut,
-    ListingSearchHit,
+    ListingSearchProperties,
     ListingStatus,
     Unit,
 )
@@ -68,5 +69,12 @@ def listing(**overrides: object) -> ListingOut:
     return ListingOut.model_validate(data)
 
 
-def search_hit(distance_m: float = 2350.0) -> ListingSearchHit:
-    return ListingSearchHit(**listing().model_dump(), distance_m=distance_m)
+def search_feature(distance_m: float = 2350.0) -> ListingFeature:
+    hit = listing()
+    return ListingFeature(
+        id=hit.id,
+        geometry=hit.pickup_location,
+        properties=ListingSearchProperties(
+            **hit.model_dump(exclude={"pickup_location"}), distance_m=distance_m
+        ),
+    )

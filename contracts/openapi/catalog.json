@@ -428,6 +428,72 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "ListingFeature": {
+        "description": "One search hit as a GeoJSON Feature: the pickup point is the geometry (HLD section 13).",
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/GeoPoint",
+            "description": "Pickup location"
+          },
+          "id": {
+            "description": "Listing id",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/ListingSearchProperties"
+          },
+          "type": {
+            "const": "Feature",
+            "default": "Feature",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "geometry",
+          "properties"
+        ],
+        "title": "ListingFeature",
+        "type": "object"
+      },
+      "ListingFeatureCollection": {
+        "description": "GeoJSON FeatureCollection, drawable as-is by Leaflet and react-native-maps.\n\n`nextCursor` is an extra (foreign) member for cursor pagination.",
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/ListingFeature"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          },
+          "type": {
+            "const": "FeatureCollection",
+            "default": "FeatureCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "features",
+          "nextCursor"
+        ],
+        "title": "ListingFeatureCollection",
+        "type": "object"
+      },
       "ListingIn": {
         "properties": {
           "cropId": {
@@ -665,10 +731,10 @@
           "grade",
           "isOrganic",
           "status",
-          "pickupLocation",
           "mediaIds",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "pickupLocation"
         ],
         "title": "ListingOut",
         "type": "object"
@@ -701,7 +767,7 @@
         "title": "ListingPage",
         "type": "object"
       },
-      "ListingSearchHit": {
+      "ListingSearchProperties": {
         "properties": {
           "createdAt": {
             "format": "date-time",
@@ -783,9 +849,6 @@
             "title": "Mediaids",
             "type": "array"
           },
-          "pickupLocation": {
-            "$ref": "#/components/schemas/GeoPoint"
-          },
           "pricePerUnit": {
             "title": "Priceperunit",
             "type": "number"
@@ -846,41 +909,12 @@
           "grade",
           "isOrganic",
           "status",
-          "pickupLocation",
           "mediaIds",
           "createdAt",
           "updatedAt",
           "distanceM"
         ],
-        "title": "ListingSearchHit",
-        "type": "object"
-      },
-      "ListingSearchPage": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/ListingSearchHit"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "nextCursor": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Nextcursor"
-          }
-        },
-        "required": [
-          "items",
-          "nextCursor"
-        ],
-        "title": "ListingSearchPage",
+        "title": "ListingSearchProperties",
         "type": "object"
       },
       "ListingStatus": {
@@ -1322,6 +1356,28 @@
     "/farms": {
       "post": {
         "operationId": "create_farm_farms_post",
+        "parameters": [
+          {
+            "description": "Optional. Repeating a request with the same key returns the first response; the same key with a different body gives 409 IDEMPOTENCY_KEY_REUSED.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional. Repeating a request with the same key returns the first response; the same key with a different body gives 409 IDEMPOTENCY_KEY_REUSED.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1772,8 +1828,30 @@
     },
     "/listings": {
       "post": {
-        "description": "Publish produce on one of your farms. Publishes `listing.published`.\n\nErrors: 404 FARM_NOT_FOUND, 403 NOT_FARM_OWNER, 422 UNKNOWN_CROP.",
+        "description": "Publish produce on one of your farms. Publishes `listing.published`.\n\nErrors: 404 FARM_NOT_FOUND, 403 NOT_FARM_OWNER, 422 UNKNOWN_CROP,\n409 IDEMPOTENCY_KEY_REUSED.",
         "operationId": "create_listing_listings_post",
+        "parameters": [
+          {
+            "description": "Optional. Repeating a request with the same key returns the first response; the same key with a different body gives 409 IDEMPOTENCY_KEY_REUSED.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional. Repeating a request with the same key returns the first response; the same key with a different body gives 409 IDEMPOTENCY_KEY_REUSED.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1840,7 +1918,7 @@
           },
           {
             "in": "query",
-            "name": "farmId",
+            "name": "farm_id",
             "required": false,
             "schema": {
               "anyOf": [
@@ -1852,7 +1930,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Farmid"
+              "title": "Farm Id"
             }
           },
           {
@@ -1919,7 +1997,7 @@
     },
     "/listings/search": {
       "get": {
-        "description": "Produce near a point (V1). Only ACTIVE listings with stock; `distanceM` is in metres.",
+        "description": "Produce near a point (V1), as a GeoJSON FeatureCollection (HLD sections 13 and 15).\n\nEach feature's geometry is the pickup point and its properties are the listing plus\n`distanceM` (metres). Only ACTIVE listings with stock.",
         "operationId": "search_listings_listings_search_get",
         "parameters": [
           {
@@ -1946,13 +2024,13 @@
           },
           {
             "in": "query",
-            "name": "radiusKm",
+            "name": "radius_km",
             "required": false,
             "schema": {
               "default": 10,
               "exclusiveMinimum": 0,
               "maximum": 100,
-              "title": "Radiuskm",
+              "title": "Radius Km",
               "type": "number"
             }
           },
@@ -1976,7 +2054,7 @@
           },
           {
             "in": "query",
-            "name": "minPrice",
+            "name": "min_price",
             "required": false,
             "schema": {
               "anyOf": [
@@ -1988,12 +2066,12 @@
                   "type": "null"
                 }
               ],
-              "title": "Minprice"
+              "title": "Min Price"
             }
           },
           {
             "in": "query",
-            "name": "maxPrice",
+            "name": "max_price",
             "required": false,
             "schema": {
               "anyOf": [
@@ -2005,7 +2083,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Maxprice"
+              "title": "Max Price"
             }
           },
           {
@@ -2085,7 +2163,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListingSearchPage"
+                  "$ref": "#/components/schemas/ListingFeatureCollection"
                 }
               }
             },

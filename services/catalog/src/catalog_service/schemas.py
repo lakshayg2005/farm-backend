@@ -134,7 +134,9 @@ class ListingUpdate(ApiModel):
     )
 
 
-class ListingOut(ApiModel):
+class ListingFields(ApiModel):
+    """Everything about a listing except its location."""
+
     id: UUID
     farm_id: UUID
     farmer_id: UUID
@@ -152,10 +154,13 @@ class ListingOut(ApiModel):
     grade: Grade | None = Field(description="Null until the quality service grades a batch")
     is_organic: bool
     status: ListingStatus
-    pickup_location: GeoPoint
     media_ids: list[UUID]
     created_at: datetime
     updated_at: datetime
+
+
+class ListingOut(ListingFields):
+    pickup_location: GeoPoint
 
 
 class ListingPage(ApiModel):
@@ -163,12 +168,27 @@ class ListingPage(ApiModel):
     next_cursor: str | None
 
 
-class ListingSearchHit(ListingOut):
+class ListingSearchProperties(ListingFields):
     distance_m: float = Field(description="Distance from the search point, in metres")
 
 
-class ListingSearchPage(ApiModel):
-    items: list[ListingSearchHit]
+class ListingFeature(ApiModel):
+    """One search hit as a GeoJSON Feature: the pickup point is the geometry (HLD section 13)."""
+
+    type: Literal["Feature"] = "Feature"
+    id: UUID = Field(description="Listing id")
+    geometry: GeoPoint = Field(description="Pickup location")
+    properties: ListingSearchProperties
+
+
+class ListingFeatureCollection(ApiModel):
+    """GeoJSON FeatureCollection, drawable as-is by Leaflet and react-native-maps.
+
+    `nextCursor` is an extra (foreign) member for cursor pagination.
+    """
+
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[ListingFeature]
     next_cursor: str | None
 
 
