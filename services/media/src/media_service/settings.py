@@ -27,9 +27,12 @@ class MediaSettings(ServiceSettings):
     land_internal_url: str = "http://land:8000"
 
     events_enabled: bool = True
-    worker_enabled: bool = True
-    worker_poll_seconds: float = 1.0
+    # Photo processing runs as arq jobs on Redis (HLD section 8); the worker is a separate
+    # process: `arq media_service.worker.WorkerSettings`. Off = uploads stay PROCESSING.
+    jobs_enabled: bool = True
     worker_max_attempts: int = 3
+    # The worker re-queues photos stuck in PROCESSING longer than this (e.g. Redis was down).
+    requeue_after_seconds: int = 120
 
     @property
     def public_endpoint(self) -> str:

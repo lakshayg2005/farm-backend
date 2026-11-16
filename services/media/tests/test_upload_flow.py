@@ -56,12 +56,13 @@ async def test_photo_at_the_farm_is_verified(uploader, store, outbox, make_photo
     assert media["distanceM"] == 0  # inside the farm boundary
     assert media["width"] == 2400 and media["height"] == 1800
     # EXIF has no zone, so it is read as IST (EXIF_DEFAULT_TZ) and returned in UTC
-    assert datetime.fromisoformat(media["takenAt"]) == datetime(
+    assert datetime.fromisoformat(media["exifTime"]) == datetime(
         2026, 11, 14, 7, 45, tzinfo=timezone(timedelta(hours=5, minutes=30))
     )
     assert media["url"].endswith(f"public/{media['id']}.jpg")
     assert media["thumbUrl"].endswith(f"thumbs/{media['id']}.jpg")
-    assert "gpsLat" not in media  # GPS is never on public routes
+    assert "takenAt" not in media  # GPS is never on public routes
+    assert media["ownerService"] == "catalog"
 
     events = await outbox()
     assert [e.type for e in events] == ["media.processed"]
@@ -202,9 +203,37 @@ async def test_internal_route_has_gps(uploader, client, make_photo):
     media = await uploader.upload(make_photo_at(make_photo, FARM[0] + 0.001, FARM[1]))
 
     internal = (await client.get(f"/internal/media/{media['id']}")).json()
-    assert abs(internal["gpsLat"] - (FARM[0] + 0.001)) < 1e-5
+    lng, lat = internal["takenAt"]["coordinates"]
+    assert abs(lat - (FARM[0] + 0.001)) < 1e-5 and abs(lng - FARM[1]) < 1e-5
     assert internal["originalUrl"].startswith("http")
 
 
 async def test_worker_has_nothing_to_do(uploader):
     assert await uploader.process() is False
+
+
+async def test_upload_url_idempotency_key(uploader, client):
+    body = {
+        "ownerType": "FARM",
+        "ownerId": str(uploader.farm_id),
+        "contentType": "image/jpeg",
+        "sizeBytes": 1000,
+    }
+    headers = {**uploader.headers, "Idempotency-Key": "upload-0001-abc"}
+
+    first = await client.post("/upload-url", json=body, headers=headers)
+    again = await client.post("/upload-url", json=body, headers=headers)
+    other = await client.post("/upload-url", json={**body, "sizeBytes": 2000}, headers=headers)
+
+    assert first.status_code == again.status_code == 201
+    assert again.json()["mediaId"] == first.json()["mediaId"]
+    assert other.status_code == 409
+    assert other.json()["error"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+
+
+async def test_owner_service_follows_owner_type(uploader, make_photo):
+    plot = await uploader.upload(make_photo(gps=None), ownerType="PLOT", ownerId=str(uuid4()))
+    proof = await uploader.upload(make_photo(gps=None), ownerType="DELIVERY", ownerId=str(uuid4()))
+    assert (plot["ownerService"], proof["ownerService"]) == ("land", "logistics")
+    assert plot["geoStatus"] == "NO_GPS"
+    assert proof["geoStatus"] == "NOT_APPLICABLE"

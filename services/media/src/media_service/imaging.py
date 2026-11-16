@@ -1,4 +1,5 @@
-"""Reading EXIF (capture time, GPS) and making the public copy and thumbnail with Pillow."""
+"""Reading EXIF (capture time, GPS) with exifread and making the public copy and thumbnail with
+Pillow (HLD section 8: "Pillow + exifread")."""
 
 import io
 from dataclasses import dataclass
@@ -6,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from PIL import ExifTags, Image, ImageOps, UnidentifiedImageError
+import exifread
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 # Refuse decompression bombs (a tiny file that expands to a gigantic bitmap).
 Image.MAX_IMAGE_PIXELS = 50_000_000
@@ -18,63 +20,77 @@ class NotAnImage(ValueError):
 
 
 @dataclass
+class ExifData:
+    taken_at: datetime | None = None
+    gps_lat: float | None = None
+    gps_lng: float | None = None
+
+
+@dataclass
 class Processed:
     width: int
     height: int
-    taken_at: datetime | None
-    gps_lat: float | None
-    gps_lng: float | None
+    exif: ExifData
     public_jpeg: bytes
     thumb_jpeg: bytes
 
 
-def _degrees(value: Any) -> float | None:
+def _number(value: Any) -> float:
+    if hasattr(value, "num") and hasattr(value, "den"):
+        return float(value.num) / float(value.den) if value.den else 0.0
+    return float(value)
+
+
+def _degrees(tag: Any) -> float | None:
     try:
-        d, m, s = (float(v) for v in value)
-    except (TypeError, ValueError, ZeroDivisionError):
+        d, m, s = (_number(v) for v in tag.values)
+    except (AttributeError, TypeError, ValueError, ZeroDivisionError):
         return None
     return d + m / 60 + s / 3600
 
 
-def read_gps(exif: Image.Exif) -> tuple[float | None, float | None]:
-    gps = exif.get_ifd(ExifTags.IFD.GPSInfo)
-    if not gps:
-        return None, None
-    lat = _degrees(gps.get(ExifTags.GPS.GPSLatitude))
-    lng = _degrees(gps.get(ExifTags.GPS.GPSLongitude))
-    if lat is None or lng is None:
-        return None, None
-    if str(gps.get(ExifTags.GPS.GPSLatitudeRef, "N")).upper().startswith("S"):
-        lat = -lat
-    if str(gps.get(ExifTags.GPS.GPSLongitudeRef, "E")).upper().startswith("W"):
-        lng = -lng
-    if not (-90 <= lat <= 90 and -180 <= lng <= 180) or (lat == 0 and lng == 0):
-        return None, None  # (0, 0) is what some phones write when they have no fix
-    return round(lat, 7), round(lng, 7)
+def _text(tag: Any) -> str:
+    return str(getattr(tag, "printable", tag or "")).strip("\x00 ")
 
 
-def _offset(value: Any) -> timezone | None:
+def _offset(value: str) -> timezone | None:
     """EXIF OffsetTime* looks like '+05:30'."""
     try:
-        text = str(value).strip()
-        sign = -1 if text.startswith("-") else 1
-        hours, minutes = text.lstrip("+-").split(":")
+        sign = -1 if value.startswith("-") else 1
+        hours, minutes = value.lstrip("+-").split(":")
         return timezone(sign * timedelta(hours=int(hours), minutes=int(minutes)))
-    except (ValueError, AttributeError):
-        return None
-
-
-def read_taken_at(exif: Image.Exif, default_tz: str) -> datetime | None:
-    details = exif.get_ifd(ExifTags.IFD.Exif)
-    raw = details.get(ExifTags.Base.DateTimeOriginal) or exif.get(ExifTags.Base.DateTime)
-    if not raw:
-        return None
-    try:
-        taken = datetime.strptime(str(raw).strip("\x00 "), "%Y:%m:%d %H:%M:%S")
     except ValueError:
         return None
-    tz = _offset(details.get(ExifTags.Base.OffsetTimeOriginal)) or ZoneInfo(default_tz)
-    return taken.replace(tzinfo=tz)
+
+
+def read_exif(data: bytes, default_tz: str) -> ExifData:
+    try:
+        tags = exifread.process_file(io.BytesIO(data), details=False)
+    except Exception:  # exifread raises assorted errors on odd files; EXIF is optional
+        return ExifData()
+    out = ExifData()
+
+    lat = _degrees(tags.get("GPS GPSLatitude"))
+    lng = _degrees(tags.get("GPS GPSLongitude"))
+    if lat is not None and lng is not None:
+        if _text(tags.get("GPS GPSLatitudeRef", "N")).upper().startswith("S"):
+            lat = -lat
+        if _text(tags.get("GPS GPSLongitudeRef", "E")).upper().startswith("W"):
+            lng = -lng
+        # (0, 0) is what some phones write when they have no fix
+        if -90 <= lat <= 90 and -180 <= lng <= 180 and not (lat == 0 and lng == 0):
+            out.gps_lat, out.gps_lng = round(lat, 7), round(lng, 7)
+
+    raw = _text(tags.get("EXIF DateTimeOriginal") or tags.get("Image DateTime"))
+    if raw:
+        try:
+            taken = datetime.strptime(raw, "%Y:%m:%d %H:%M:%S")
+        except ValueError:
+            taken = None
+        if taken is not None:
+            tz = _offset(_text(tags.get("EXIF OffsetTimeOriginal"))) or ZoneInfo(default_tz)
+            out.taken_at = taken.replace(tzinfo=tz)
+    return out
 
 
 def _jpeg(image: Image.Image, max_px: int, quality: int) -> bytes:
@@ -109,16 +125,11 @@ def process_image(
     if ALLOWED_FORMATS.get(image.format or "") != declared_type:
         raise NotAnImage("TYPE_MISMATCH")
 
-    exif = image.getexif()
-    gps_lat, gps_lng = read_gps(exif)
-    taken_at = read_taken_at(exif, default_tz)
     upright = ImageOps.exif_transpose(image)  # phone photos are often stored rotated
     return Processed(
         width=upright.width,
         height=upright.height,
-        taken_at=taken_at,
-        gps_lat=gps_lat,
-        gps_lng=gps_lng,
+        exif=read_exif(data, default_tz),
         public_jpeg=_jpeg(upright, public_max_px, 85),
         thumb_jpeg=_jpeg(upright, thumb_max_px, 80),
     )

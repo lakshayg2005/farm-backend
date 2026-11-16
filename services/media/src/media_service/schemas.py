@@ -26,6 +26,18 @@ class OwnerType(StrEnum):
     USER = "USER"  # profile / team photo (never geo-checked)
 
 
+# HLD section 10 stores owner_service: which service owns the thing a photo belongs to.
+OWNER_SERVICES: dict[OwnerType, str] = {
+    OwnerType.FARM: "catalog",
+    OwnerType.LISTING: "catalog",
+    OwnerType.PLOT: "land",
+    OwnerType.RESERVATION: "land",
+    OwnerType.INSPECTION: "quality",
+    OwnerType.DELIVERY: "logistics",
+    OwnerType.USER: "identity",
+}
+
+
 class MediaStatus(StrEnum):
     PENDING_UPLOAD = "PENDING_UPLOAD"  # upload URL issued, waiting for /complete
     PROCESSING = "PROCESSING"  # uploaded; the worker is reading EXIF and making copies
@@ -64,6 +76,7 @@ class UploadUrlOut(ApiModel):
 
 class MediaOut(ApiModel):
     id: UUID
+    owner_service: str = Field(description="Service that owns the owner, e.g. catalog or land")
     owner_type: OwnerType
     owner_id: UUID
     uploaded_by: UUID
@@ -74,9 +87,9 @@ class MediaOut(ApiModel):
     thumb_url: str | None
     width: int | None
     height: int | None
-    taken_at: datetime | None = Field(description="Capture time from EXIF, if present")
-    geo_status: GeoStatus
-    is_geo_verified: bool
+    exif_time: datetime | None = Field(description="Capture time from EXIF, if present (UTC)")
+    is_geo_verified: bool = Field(description="False shows an 'unverified' badge")
+    geo_status: GeoStatus = Field(description="Why it is (not) verified")
     distance_m: float | None = Field(description="Metres from the farm / plot (0 = inside it)")
     reject_reason: str | None
     created_at: datetime
@@ -88,9 +101,14 @@ class MediaPage(ApiModel):
     next_cursor: str | None
 
 
-class MediaInternalOut(MediaOut):
-    """For other services only: includes the raw GPS point and a short-lived original URL."""
+class GeoPoint(ApiModel):
+    type: Literal["Point"] = "Point"
+    coordinates: tuple[float, float] = Field(description="[lng, lat]")
 
-    gps_lat: float | None
-    gps_lng: float | None
+
+class MediaInternalOut(MediaOut):
+    """For other services only: includes where the photo was taken and a short-lived URL to
+    the original."""
+
+    taken_at: GeoPoint | None = Field(description="EXIF GPS position (GeoJSON)")
     original_url: str | None

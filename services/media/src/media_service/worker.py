@@ -1,57 +1,67 @@
-"""Background worker: turns PROCESSING uploads into READY photos.
+"""Photo processing as arq jobs (HLD section 8: "arq or Celery workers inside the owning service").
 
-For each photo: read EXIF time and GPS, check the GPS point is within 2 km of the farm or plot,
-write an EXIF-free public copy and a thumbnail, then publish `media.processed` (outbox).
+    arq media_service.worker.WorkerSettings          # run the worker (its own container)
 
-Runs inside the media service by default (WORKER_ENABLED=true), or on its own:
+For each photo (HLD section 12, "Upload a real photo"): read EXIF time and GPS, check the GPS
+point is within 2 km of the farm or plot with ST_DWithin, write an EXIF-free public copy and a
+thumbnail, then publish `media.processed` through the outbox.
 
-    uv run --package farm-media python -m media_service.worker
-
-Rows are claimed with FOR UPDATE SKIP LOCKED, so several workers can run side by side.
+A failing job is retried with a growing delay; after WORKER_MAX_ATTEMPTS the photo is FAILED.
+Every minute a sweeper re-queues photos stuck in PROCESSING (e.g. Redis was down at /complete).
 """
 
 import asyncio
-import contextlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
+from arq import Retry, cron, func
+from arq.connections import RedisSettings
+from geoalchemy2.elements import WKTElement
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from farm_common.events import Event
+from farm_common.log import configure_logging
 from farm_common.outbox import add_event
 from media_service.db import Media, OutboxEvent
-from media_service.geo import GEO_SOURCES, GeoResolver, classify
+from media_service.geo import GEO_KINDS, GeoResolver, check_location
 from media_service.imaging import NotAnImage, process_image
+from media_service.jobs import PROCESS_MEDIA, ArqQueue
 from media_service.schemas import GeoStatus, MediaStatus, OwnerType
-from media_service.settings import MediaSettings
+from media_service.settings import MediaSettings, get_media_settings
 from media_service.storage import ObjectStore
 
 logger = logging.getLogger(__name__)
 
 
-def public_payload(media: Media, store: ObjectStore) -> dict[str, Any]:
+def event_payload(media: Media) -> dict[str, Any]:
     return {
         "mediaId": str(media.id),
+        "ownerService": media.owner_service,
         "ownerType": media.owner_type,
         "ownerId": str(media.owner_id),
         "uploadedBy": str(media.uploaded_by),
         "status": media.status,
-        "url": store.public_url(media.public_key) if media.public_key else None,
-        "thumbUrl": store.public_url(media.thumb_key) if media.thumb_key else None,
+        "url": media.url,
+        "thumbUrl": media.thumb_url,
         "width": media.width,
         "height": media.height,
-        "takenAt": media.taken_at.isoformat() if media.taken_at else None,
+        "exifTime": media.exif_time.isoformat() if media.exif_time else None,
+        "isGeoVerified": media.is_geo_verified,
         "geoStatus": media.geo_status,
-        "isGeoVerified": media.geo_status == GeoStatus.VERIFIED,
         "distanceM": media.distance_m,
         "rejectReason": media.reject_reason,
     }
 
 
 async def _process(
-    media: Media, store: ObjectStore, resolver: GeoResolver, settings: MediaSettings
+    session: AsyncSession,
+    media: Media,
+    store: ObjectStore,
+    resolver: GeoResolver,
+    settings: MediaSettings,
 ) -> None:
     original = await store.get(media.original_key)
     try:
@@ -70,13 +80,19 @@ async def _process(
         await store.delete(media.original_key)
         return
 
+    exif = result.exif
+    media.exif_time = exif.taken_at.astimezone(UTC) if exif.taken_at else None
+    if exif.gps_lat is not None and exif.gps_lng is not None:
+        media.taken_at = WKTElement(f"POINT({exif.gps_lng} {exif.gps_lat})", srid=4326)  # type: ignore[assignment]
+    await session.flush()
+
     owner_type = OwnerType(media.owner_type)
-    if owner_type in GEO_SOURCES:
+    if owner_type in GEO_KINDS:
         reference = None
-        if result.gps_lat is not None:
+        if media.taken_at is not None:
             reference = await resolver.locate(owner_type, media.owner_id)
-        geo_status, distance = classify(
-            result.gps_lat, result.gps_lng, reference, settings.geo_verify_radius_m
+        geo_status, distance = await check_location(
+            session, media, reference, settings.geo_verify_radius_m
         )
     else:
         geo_status, distance = GeoStatus.NOT_APPLICABLE, None
@@ -85,85 +101,92 @@ async def _process(
     await store.put(public_key, result.public_jpeg, "image/jpeg")
     await store.put(thumb_key, result.thumb_jpeg, "image/jpeg")
 
-    media.public_key, media.thumb_key = public_key, thumb_key
+    media.url, media.thumb_url = store.public_url(public_key), store.public_url(thumb_key)
     media.width, media.height = result.width, result.height
-    media.taken_at = result.taken_at.astimezone(UTC) if result.taken_at else None
-    media.gps_lat, media.gps_lng = result.gps_lat, result.gps_lng
     media.geo_status, media.distance_m = geo_status, distance
+    media.is_geo_verified = geo_status == GeoStatus.VERIFIED
     media.status = MediaStatus.READY
 
 
-async def process_one(
-    session_factory: async_sessionmaker[AsyncSession],
-    store: ObjectStore,
-    resolver: GeoResolver,
-    settings: MediaSettings,
-) -> bool:
-    """Process the oldest waiting photo. Returns False when there was nothing to do."""
-    async with session_factory() as session, session.begin():
+def _finish(session: AsyncSession, media: Media) -> None:
+    media.processed_at = datetime.now(UTC)
+    add_event(
+        session,
+        OutboxEvent,
+        Event(type="media.processed", producer="media", payload=event_payload(media)),
+    )
+
+
+async def process_media(ctx: dict[str, Any], media_id: str) -> str:
+    """arq job: process one photo. Returns its final status (or SKIPPED)."""
+    settings: MediaSettings = ctx["settings"]
+    attempt: int = ctx.get("job_try", 1)
+    async with ctx["session_factory"]() as session, session.begin():
         media = (
             await session.execute(
                 select(Media)
-                .where(
-                    Media.status == MediaStatus.PROCESSING,
-                    Media.attempts < settings.worker_max_attempts,
-                )
-                .order_by(Media.completed_at)
-                .limit(1)
+                .where(Media.id == UUID(media_id), Media.status == MediaStatus.PROCESSING)
                 .with_for_update(skip_locked=True)
             )
         ).scalar_one_or_none()
         if media is None:
-            return False
-        media.attempts += 1
+            return "SKIPPED"  # already done, deleted, or another worker has it
         try:
             async with session.begin_nested():
-                await _process(media, store, resolver, settings)
-        except Exception:
-            logger.exception("Processing media %s failed (attempt %d)", media.id, media.attempts)
+                await _process(session, media, ctx["store"], ctx["resolver"], settings)
+        except Exception as exc:
+            logger.exception("Processing media %s failed (attempt %d)", media_id, attempt)
+            if attempt < settings.worker_max_attempts:
+                raise Retry(defer=timedelta(seconds=5 * attempt)) from exc
             await session.refresh(media)
-            if media.attempts >= settings.worker_max_attempts:
-                media.status = MediaStatus.FAILED
-                media.reject_reason = "PROCESSING_FAILED"
-            else:
-                return True
-        media.processed_at = datetime.now(UTC)
-        add_event(
-            session,
-            OutboxEvent,
-            Event(type="media.processed", producer="media", payload=public_payload(media, store)),
-        )
-        return True
+            media.status = MediaStatus.FAILED
+            media.reject_reason = "PROCESSING_FAILED"
+            media.geo_status = GeoStatus.NOT_APPLICABLE
+        _finish(session, media)
+        return media.status
 
 
-async def run_worker(
-    session_factory: async_sessionmaker[AsyncSession],
-    store: ObjectStore,
-    resolver: GeoResolver,
-    settings: MediaSettings,
-) -> None:
-    while True:
-        try:
-            busy = await process_one(session_factory, store, resolver, settings)
-        except Exception:
-            logger.exception("Media worker loop failed; will retry")
-            busy = False
-        if not busy:
-            await asyncio.sleep(settings.worker_poll_seconds)
+async def requeue_stuck(ctx: dict[str, Any]) -> int:
+    """Cron: queue photos left in PROCESSING (their job was never queued or got lost)."""
+    settings: MediaSettings = ctx["settings"]
+    cutoff = datetime.now(UTC) - timedelta(seconds=settings.requeue_after_seconds)
+    async with ctx["session_factory"]() as session:
+        ids = (
+            await session.execute(
+                select(Media.id).where(
+                    Media.status == MediaStatus.PROCESSING, Media.completed_at < cutoff
+                )
+            )
+        ).scalars()
+        stuck = list(ids)
+    for media_id in stuck:
+        await ctx["queue"].enqueue(media_id)
+    return len(stuck)
 
 
-def main() -> None:
-    from farm_common.log import configure_logging
+async def startup(ctx: dict[str, Any]) -> None:
     from media_service.database import get_session_factory
     from media_service.geo import get_resolver
-    from media_service.settings import get_media_settings
     from media_service.storage import get_store
 
     settings = get_media_settings()
     configure_logging("media-worker", settings.log_level)
-    with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(run_worker(get_session_factory(), get_store(), get_resolver(), settings))
+    ctx["settings"] = settings
+    ctx["session_factory"] = get_session_factory()
+    ctx["store"] = get_store()
+    ctx["resolver"] = get_resolver()
+    ctx["queue"] = ArqQueue(ctx["redis"])
+    try:
+        await ctx["store"].ensure_bucket()
+    except Exception:  # storage may still be starting; jobs retry until it is up
+        logger.exception("Could not reach object storage at %s", settings.s3_endpoint)
 
 
-if __name__ == "__main__":
-    main()
+class WorkerSettings:
+    functions = [
+        func(process_media, name=PROCESS_MEDIA, max_tries=get_media_settings().worker_max_attempts)
+    ]  # type: ignore[arg-type]
+    cron_jobs = [cron(requeue_stuck, second=0, run_at_startup=True)]  # type: ignore[arg-type]
+    on_startup = startup
+    redis_settings = RedisSettings.from_dsn(get_media_settings().redis_url)
+    keep_result = 300

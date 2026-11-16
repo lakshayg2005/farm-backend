@@ -1,4 +1,7 @@
-"""Startup/shutdown: make sure the bucket exists, run the outbox relay and the photo worker."""
+"""Startup/shutdown: object storage bucket, the arq job queue, and the outbox relay.
+
+Photo processing itself runs in the arq worker process (media_service.worker).
+"""
 
 import asyncio
 import contextlib
@@ -11,40 +14,41 @@ from farm_common.events import RabbitEventBus
 from farm_common.outbox import run_relay
 from media_service.database import get_session_factory
 from media_service.db import OutboxEvent
-from media_service.geo import get_resolver
+from media_service.jobs import ArqQueue
 from media_service.settings import get_media_settings
 from media_service.storage import get_store
-from media_service.worker import run_worker
 
 logger = logging.getLogger(__name__)
 
 
 @contextlib.asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_media_settings()
-    session_factory = get_session_factory()
-    tasks: list[asyncio.Task[None]] = []
+    queue: ArqQueue | None = None
+    relay: asyncio.Task[None] | None = None
     bus: RabbitEventBus | None = None
-    if settings.worker_enabled:
-        store = get_store()
+    if settings.jobs_enabled:
         try:
-            await store.ensure_bucket()
+            await get_store().ensure_bucket()
         except Exception:
             logger.exception("Could not reach object storage at %s", settings.s3_endpoint)
-        tasks.append(
-            asyncio.create_task(run_worker(session_factory, store, get_resolver(), settings))
-        )
+        try:
+            queue = await ArqQueue.connect(settings.redis_url)
+        except Exception:
+            logger.exception("Could not reach Redis; photos will wait for the worker's sweeper")
+        app.state.queue = queue
     if settings.events_enabled:
         bus = RabbitEventBus(settings.rabbitmq_url, service_name="media")
         await bus.connect()
-        tasks.append(asyncio.create_task(run_relay(session_factory, OutboxEvent, bus)))
+        relay = asyncio.create_task(run_relay(get_session_factory(), OutboxEvent, bus))
     try:
         yield
     finally:
-        for task in tasks:
-            task.cancel()
-        for task in tasks:
+        if relay is not None:
+            relay.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await task
+                await relay
         if bus is not None:
             await bus.close()
+        if queue is not None:
+            await queue.close()

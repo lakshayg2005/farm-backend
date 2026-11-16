@@ -2,21 +2,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "media.processed",
   "title": "media.processed",
-  "description": "Producer: media. A photo finished processing (READY), or was REJECTED / FAILED. Payload of the farm_common Event envelope. Raw GPS is never included; ask GET /internal/media/{id} if needed.",
+  "description": "Producer: media. A photo finished processing (READY), or was REJECTED / FAILED. Payload of the farm_common Event envelope. The GPS point (taken_at) is never included; GET /internal/media/{id} returns it.",
   "type": "object",
   "required": [
     "mediaId",
+    "ownerService",
     "ownerType",
     "ownerId",
     "uploadedBy",
     "status",
-    "geoStatus",
-    "isGeoVerified"
+    "isGeoVerified",
+    "geoStatus"
   ],
   "properties": {
     "mediaId": {
       "type": "string",
       "format": "uuid"
+    },
+    "ownerService": {
+      "enum": [
+        "catalog",
+        "land",
+        "quality",
+        "logistics",
+        "identity"
+      ],
+      "description": "Service that owns the owner (HLD section 10)"
     },
     "ownerType": {
       "enum": [
@@ -69,14 +80,6 @@
         "null"
       ]
     },
-    "takenAt": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "format": "date-time",
-      "description": "EXIF capture time (UTC)"
-    },
     "geoStatus": {
       "enum": [
         "VERIFIED",
@@ -106,6 +109,14 @@
         "TYPE_MISMATCH",
         "PROCESSING_FAILED"
       ]
+    },
+    "exifTime": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "EXIF capture time (UTC)"
     }
   }
 }

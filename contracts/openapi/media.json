@@ -1,6 +1,36 @@
 {
   "components": {
     "schemas": {
+      "GeoPoint": {
+        "properties": {
+          "coordinates": {
+            "description": "[lng, lat]",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "Point",
+            "default": "Point",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "coordinates"
+        ],
+        "title": "GeoPoint",
+        "type": "object"
+      },
       "GeoStatus": {
         "enum": [
           "PENDING",
@@ -27,7 +57,7 @@
         "type": "object"
       },
       "MediaInternalOut": {
-        "description": "For other services only: includes the raw GPS point and a short-lived original URL.",
+        "description": "For other services only: includes where the photo was taken and a short-lived URL to\nthe original.",
         "properties": {
           "contentType": {
             "title": "Contenttype",
@@ -50,30 +80,22 @@
             "description": "Metres from the farm / plot (0 = inside it)",
             "title": "Distancem"
           },
+          "exifTime": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Capture time from EXIF, if present (UTC)",
+            "title": "Exiftime"
+          },
           "geoStatus": {
-            "$ref": "#/components/schemas/GeoStatus"
-          },
-          "gpsLat": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gpslat"
-          },
-          "gpsLng": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gpslng"
+            "$ref": "#/components/schemas/GeoStatus",
+            "description": "Why it is (not) verified"
           },
           "height": {
             "anyOf": [
@@ -92,6 +114,7 @@
             "type": "string"
           },
           "isGeoVerified": {
+            "description": "False shows an 'unverified' badge",
             "title": "Isgeoverified",
             "type": "boolean"
           },
@@ -109,6 +132,11 @@
           "ownerId": {
             "format": "uuid",
             "title": "Ownerid",
+            "type": "string"
+          },
+          "ownerService": {
+            "description": "Service that owns the owner, e.g. catalog or land",
+            "title": "Ownerservice",
             "type": "string"
           },
           "ownerType": {
@@ -147,15 +175,13 @@
           "takenAt": {
             "anyOf": [
               {
-                "format": "date-time",
-                "type": "string"
+                "$ref": "#/components/schemas/GeoPoint"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Capture time from EXIF, if present",
-            "title": "Takenat"
+            "description": "EXIF GPS position (GeoJSON)"
           },
           "thumbUrl": {
             "anyOf": [
@@ -199,6 +225,7 @@
         },
         "required": [
           "id",
+          "ownerService",
           "ownerType",
           "ownerId",
           "uploadedBy",
@@ -209,15 +236,14 @@
           "thumbUrl",
           "width",
           "height",
-          "takenAt",
-          "geoStatus",
+          "exifTime",
           "isGeoVerified",
+          "geoStatus",
           "distanceM",
           "rejectReason",
           "createdAt",
           "processedAt",
-          "gpsLat",
-          "gpsLng",
+          "takenAt",
           "originalUrl"
         ],
         "title": "MediaInternalOut",
@@ -246,8 +272,22 @@
             "description": "Metres from the farm / plot (0 = inside it)",
             "title": "Distancem"
           },
+          "exifTime": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Capture time from EXIF, if present (UTC)",
+            "title": "Exiftime"
+          },
           "geoStatus": {
-            "$ref": "#/components/schemas/GeoStatus"
+            "$ref": "#/components/schemas/GeoStatus",
+            "description": "Why it is (not) verified"
           },
           "height": {
             "anyOf": [
@@ -266,12 +306,18 @@
             "type": "string"
           },
           "isGeoVerified": {
+            "description": "False shows an 'unverified' badge",
             "title": "Isgeoverified",
             "type": "boolean"
           },
           "ownerId": {
             "format": "uuid",
             "title": "Ownerid",
+            "type": "string"
+          },
+          "ownerService": {
+            "description": "Service that owns the owner, e.g. catalog or land",
+            "title": "Ownerservice",
             "type": "string"
           },
           "ownerType": {
@@ -306,19 +352,6 @@
           },
           "status": {
             "$ref": "#/components/schemas/MediaStatus"
-          },
-          "takenAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Capture time from EXIF, if present",
-            "title": "Takenat"
           },
           "thumbUrl": {
             "anyOf": [
@@ -362,6 +395,7 @@
         },
         "required": [
           "id",
+          "ownerService",
           "ownerType",
           "ownerId",
           "uploadedBy",
@@ -372,9 +406,9 @@
           "thumbUrl",
           "width",
           "height",
-          "takenAt",
-          "geoStatus",
+          "exifTime",
           "isGeoVerified",
+          "geoStatus",
           "distanceM",
           "rejectReason",
           "createdAt",
@@ -608,7 +642,7 @@
     },
     "/internal/media/{media_id}": {
       "get": {
-        "description": "Full details incl. GPS, e.g. for quality or logistics to check where a photo was taken.",
+        "description": "Full details incl. where the photo was taken, e.g. for quality or logistics.",
         "operationId": "get_media_internal_internal_media__media_id__get",
         "parameters": [
           {
@@ -734,6 +768,28 @@
       "post": {
         "description": "A signed URL to PUT one image (JPEG, PNG or WebP, at most 5 MB) for 5 minutes.",
         "operationId": "create_upload_url_upload_url_post",
+        "parameters": [
+          {
+            "description": "Optional. Repeating a request with the same key returns the first response; the same key with a different body gives 409 IDEMPOTENCY_KEY_REUSED.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional. Repeating a request with the same key returns the first response; the same key with a different body gives 409 IDEMPOTENCY_KEY_REUSED.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
