@@ -11,6 +11,7 @@ dependencies = [
     "asyncpg>=0.29",
     "alembic>=1.13",
     "geoalchemy2>=0.15",
+    "shapely>=2.0",
 ]
 
 [tool.uv.sources]
