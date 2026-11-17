@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -9,6 +10,7 @@ from farm_common.errors import AppError
 from land_service.consumers import on_quality_graded
 from land_service.db import Reservation
 from land_service.geo import polygon_to_db
+from land_service import routes as land_routes
 from land_service.schemas import Polygon, SeasonCreate
 
 
@@ -81,3 +83,39 @@ async def test_current_harvest_attempt_pass_moves_reservation_to_fulfilling():
     await on_quality_graded(session, event)
 
     assert reservation.status == "FULFILLING"
+
+
+@pytest.mark.asyncio
+async def test_cancelling_reservation_publishes_event_for_deposit_refund(monkeypatch):
+    customer_id = uuid4()
+    reservation = SimpleNamespace(
+        id=uuid4(),
+        plot_season_id=uuid4(),
+        customer_id=customer_id,
+        farmer_id=uuid4(),
+        crop_id="tomato",
+        expected_qty_kg=10,
+        deposit=20,
+        total=100,
+        status="ACTIVE",
+        expires_at=datetime.now(UTC),
+    )
+    user = SimpleNamespace(id=str(customer_id), has_any=lambda *_: False)
+    session = AsyncMock()
+    session.get.return_value = reservation
+    published = []
+
+    monkeypatch.setattr(
+        land_routes,
+        "add_event",
+        lambda _session, _model, event: published.append(event),
+    )
+    monkeypatch.setattr(land_routes, "reservation_out", lambda row: row)
+
+    await land_routes.cancel_reservation(reservation.id, user, session)
+
+    assert reservation.status == "CANCELLED"
+    assert len(published) == 1
+    assert published[0].type == "reservation.cancelled"
+    assert published[0].payload == {"reservationId": str(reservation.id)}
+    session.commit.assert_awaited_once()
