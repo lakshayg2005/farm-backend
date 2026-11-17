@@ -103,12 +103,6 @@ async def submit_report(
         raise AppError("INSPECTION_NOT_FOUND", "Inspection not found", 404)
     if row.status != "PENDING":
         raise AppError("INSPECTION_ALREADY_REPORTED", "Inspection has already been reported", 409)
-    if row.subject_type == "ORDER" and body.result == "FAIL":
-        raise AppError(
-            "ORDER_QC_FAILURE_FLOW_UNAVAILABLE",
-            "Order rejection/refund decisions must be handled by the order service; submit the inspection grade as PASS after its decision.",
-            409,
-        )
     if row.inspector_id is not None and row.inspector_id != UUID(user.id) and not user.has_any(Role.ADMIN):
         raise AppError("INSPECTION_ASSIGNED", "Inspection is assigned to another inspector", 403)
     if row.inspector_id is None:
