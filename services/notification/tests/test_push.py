@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 
 import anyio
 import httpx
-import pytest
 
 from notification_service.push import send_push_notification
 

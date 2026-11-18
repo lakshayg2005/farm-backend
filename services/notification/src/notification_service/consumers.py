@@ -15,7 +15,7 @@ from notification_service.schemas import NotificationType
 from notification_service.settings import NotificationSettings
 
 if TYPE_CHECKING:
-    from farm_common.events import Event
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +200,9 @@ def map_event_to_notification(
                 UUID(str(cid)),
                 NotificationType.ORDER_QC_PASSED,
                 title,
-                f"Your order passed inspection with Grade {grade}." if result == "PASS" else f"Inspection result: Grade {grade}.",
+                f"Your order passed inspection with Grade {grade}."
+                if result == "PASS"
+                else f"Inspection result: Grade {grade}.",
                 {"inspectionId": p.get("inspectionId"), "grade": grade, "result": result},
             )
         return (

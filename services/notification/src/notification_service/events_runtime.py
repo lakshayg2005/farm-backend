@@ -35,6 +35,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     from notification_service.database import get_session_factory
 
     session_factory = get_session_factory()
+    assert session_factory is not None
     bus = RabbitEventBus(settings.rabbitmq_url, service_name="notification")
 
     try:

@@ -31,9 +31,7 @@ class Base(DeclarativeBase):
 
 class DeviceToken(Base):
     __tablename__ = "device_tokens"
-    __table_args__ = (
-        UniqueConstraint("user_id", "token", name="uq_device_tokens_user_token"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "token", name="uq_device_tokens_user_token"),)
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)

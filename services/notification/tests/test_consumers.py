@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
-from uuid import UUID, uuid4
-
-import pytest
+from uuid import uuid4
 
 from farm_common.events import Event
-from notification_service.consumers import make_event_handler, map_event_to_notification
+from notification_service.consumers import map_event_to_notification
 from notification_service.schemas import NotificationType
-from notification_service.settings import NotificationSettings
 
 
 def test_map_order_placed_event():

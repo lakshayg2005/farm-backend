@@ -21,8 +21,12 @@ async def test_run_pool_job_calls_pooling_engine() -> None:
     mock_pools = [AsyncMock(id="pool-1"), AsyncMock(id="pool-2")]
 
     with (
-        patch("logistics_service.worker.fetch_ready_orders", new=AsyncMock(return_value=mock_orders)) as mock_fetch,
-        patch("logistics_service.worker.run_pooling", new=AsyncMock(return_value=mock_pools)) as mock_run,
+        patch(
+            "logistics_service.worker.fetch_ready_orders", new=AsyncMock(return_value=mock_orders)
+        ) as mock_fetch,
+        patch(
+            "logistics_service.worker.run_pooling", new=AsyncMock(return_value=mock_pools)
+        ) as mock_run,
     ):
         count = await run_pool_job(ctx, "2026-11-18")
         assert count == 2

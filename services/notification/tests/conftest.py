@@ -2,7 +2,6 @@
 
 import sys
 import types
-from unittest.mock import MagicMock
 
 # Gracefully provide a mock for aio_pika if running in minimal test environment without RabbitMQ
 if "aio_pika" not in sys.modules:

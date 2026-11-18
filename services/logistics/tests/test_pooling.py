@@ -173,4 +173,3 @@ async def test_pickup_before_drop_ordering(
         assert stops[1].stop_type == "PICKUP"
         assert stops[2].stop_type == "DROP"
         assert stops[3].stop_type == "DROP"
-
