@@ -23,7 +23,17 @@ active with deposit paid and a few crop updates), and produce orders (`--orders`
 who have none yet, so re-running does not duplicate them. Orders are placed again on every run
 (each order needs a fresh payment), so run with `--orders 0` when re-running.
 
-Not seeded yet: photos (media needs object storage), inspections and delivery pools (quality and
-logistics flows are driven by the apps and the pooling job, issue #21 stays open for those).
+**Operations (runs last, `--skip-ops` to leave it out):** takes up to 90 of the placed orders through the
+whole flow with API calls only, so every app has data: some stay CONFIRMED, some are cancelled, some
+are packed and wait in the inspector queue, some inspections fail (re-harvest, or lower grade
+accepted), and the passed ones become READY_FOR_DISPATCH. Then it runs the real pooling job
+(`POST /logistics/pools/run`) and delivery partners work the pools: some delivered, some with pickups
+done (in progress), some untouched. It also creates 3 inspectors (`+919000300001` to `03`) and 4
+delivery partners (`+919000400001` to `04`), same password, with the inspector role granted by the
+admin. The steps that rely on events poll for up to 90 seconds, so RabbitMQ and the workers must be
+up. Run it on a fresh database: it only picks up orders that are still CONFIRMED.
+
+Not seeded yet: photos (media needs object storage), so inspection reports and proof of delivery
+carry no real photos (delivery uses a random media id).
 Reservations become ACTIVE only once RabbitMQ delivers the deposit event, so crop updates for a
 just-paid reservation can be skipped by the API; the seeder ignores that.

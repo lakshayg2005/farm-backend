@@ -91,7 +91,7 @@ def seed_v2(gw: Gateway, data: Dataset, plan: V2Plan) -> V2Summary:
             continue
         gw.call(
             "POST",
-            "/orders/payments/intent",
+            "/order/orders/payments/intent",
             token=c_token,
             json={"amount": accepted["deposit"], "kind": "DEPOSIT", "referenceId": made["id"]},
         )
@@ -124,11 +124,11 @@ def seed_v2(gw: Gateway, data: Dataset, plan: V2Plan) -> V2Summary:
         customer = data.customers[order.customer_index]
         token = _tokens(gw, tokens, customer.phone)
         intent = gw.call(
-            "POST", "/orders/payments/intent", token=token, json={"amount": 1, "kind": "FULL"}
+            "POST", "/order/orders/payments/intent", token=token, json={"amount": 1, "kind": "FULL"}
         ).json()
         placed = gw.call(
             "POST",
-            "/orders",
+            "/order/orders",
             token=token,
             idempotency_key=f"seed-order-{n:05d}",
             json={

@@ -3,6 +3,7 @@ import os
 
 from farm_seed.client import Gateway
 from farm_seed.data import build_dataset, build_v2_plan
+from farm_seed.ops import seed_operations
 from farm_seed.v1 import as_dict, seed_v1
 from farm_seed.v2 import seed_v2
 
@@ -22,6 +23,11 @@ def main() -> None:
     parser.add_argument(
         "--skip-v2", action="store_true", help="only farmers, farms, listings, customers"
     )
+    parser.add_argument(
+        "--skip-ops",
+        action="store_true",
+        help="do not take orders through packing, inspection, pooling and delivery",
+    )
     args = parser.parse_args()
     if not (args.admin_phone and args.admin_password):
         parser.error(
@@ -33,6 +39,16 @@ def main() -> None:
     print("Seeded V1:", as_dict(summary))
     if not args.skip_v2:
         print("Seeded V2:", seed_v2(gateway, data, build_v2_plan(data, args.orders)))
+        if not args.skip_ops and args.orders:
+            print(
+                "Seeded operations:",
+                seed_operations(
+                    gateway,
+                    [f.phone for f in data.farmers],
+                    args.admin_phone,
+                    args.admin_password,
+                ),
+            )
 
 
 if __name__ == "__main__":

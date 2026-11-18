@@ -110,10 +110,10 @@ class FakeGateway:
             return httpx.Response(200, json={"deposit": 800})
         if re.fullmatch(r"/land/reservations/.+/updates", path):
             return httpx.Response(201, json={})
-        if path == "/orders/payments/intent":
+        if path == "/order/orders/payments/intent":
             self.intents.append(body)
             return httpx.Response(201, json={"id": str(uuid4()), "status": "SUCCEEDED"})
-        if path == "/orders":
+        if path == "/order/orders":
             self.orders.append(body)
             return httpx.Response(201, json={"orders": []})
         return httpx.Response(404, json={})
