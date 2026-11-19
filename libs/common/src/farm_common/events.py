@@ -5,14 +5,18 @@
   event is never lost when the broker is down.
 - Each service consumes from its own durable queue. A failing handler is retried up to
   `max_retries` times, then the message goes to the service's dead-letter queue (<queue>.dlq).
+  Retries are spaced out with backoff (`retry_delays`, default 1 s, 4 s, 15 s): the message waits
+  in a delay queue (<queue>.retry.<ms>ms, with x-message-ttl) that dead-letters it back to the
+  main queue, so a waiting retry never holds up the consumer. See docs/events-dlq.md.
 - Handlers must be idempotent: use farm_common.outbox.mark_processed() with the event_id.
 """
 
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID, uuid4
 
 import aio_pika
@@ -30,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 EXCHANGE = "farm.events"
 RETRY_HEADER = "x-retries"
+DEFAULT_RETRY_DELAYS: tuple[float, ...] = (1.0, 4.0, 15.0)
 
 
 class Event(BaseModel):
@@ -61,11 +66,58 @@ def topic_matches(pattern: str, routing_key: str) -> bool:
     return match(pattern.split("."), routing_key.split("."))
 
 
+@dataclass(frozen=True)
+class RetryDecision:
+    """What to do with a message whose handler just failed."""
+
+    action: Literal["retry", "dead_letter"]
+    attempt: int  # retry number this would be (1-based); for dead_letter, the attempts used
+    delay_s: float = 0.0
+
+
+def retries_from_headers(headers: Mapping[str, Any] | None) -> int:
+    """Retries already done for a message, from its x-retries header (0 if missing or bad)."""
+    raw = (headers or {}).get(RETRY_HEADER, 0)
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        return 0
+    return raw
+
+
+def retry_delay(attempt: int, delays: Sequence[float]) -> float:
+    """Delay before retry `attempt` (1-based); the last delay is reused past the end (cap)."""
+    if not delays or attempt < 1:
+        return 0.0
+    return float(delays[min(attempt, len(delays)) - 1])
+
+
+def decide_retry(retries: int, max_retries: int, delays: Sequence[float]) -> RetryDecision:
+    """Retry with backoff while `retries < max_retries`, otherwise dead-letter the message."""
+    if retries < max_retries:
+        attempt = retries + 1
+        return RetryDecision("retry", attempt, retry_delay(attempt, delays))
+    return RetryDecision("dead_letter", retries)
+
+
+def retry_queue_name(queue_name: str, delay_s: float) -> str:
+    """Delay queue for one delay. The TTL is in the name, so changing a delay makes a new
+    queue instead of failing to redeclare the old one with different arguments."""
+    return f"{queue_name}.retry.{round(delay_s * 1000)}ms"
+
+
 class RabbitEventBus:
-    def __init__(self, url: str, service_name: str, max_retries: int = 3) -> None:
+    def __init__(
+        self,
+        url: str,
+        service_name: str,
+        max_retries: int = 3,
+        retry_delays: Sequence[float] = DEFAULT_RETRY_DELAYS,
+    ) -> None:
+        if any(d < 0 for d in retry_delays):
+            raise ValueError("retry_delays must not be negative")
         self.url = url
         self.service_name = service_name
         self.max_retries = max_retries
+        self.retry_delays = tuple(retry_delays)
         self._connection: AbstractRobustConnection | None = None
         self._channel: AbstractChannel | None = None
         self._exchange: AbstractExchange | None = None
@@ -105,6 +157,20 @@ class RabbitEventBus:
         )
         for key in binding_keys:
             await queue.bind(self._exchange, routing_key=key)
+        # One delay queue per distinct delay: messages sit there for the TTL, then dead-letter
+        # back to the main queue. A fixed TTL per queue avoids head-of-line blocking.
+        delays = {retry_delay(n, self.retry_delays) for n in range(1, self.max_retries + 1)}
+        for delay in delays:
+            if delay > 0:
+                await self._channel.declare_queue(
+                    retry_queue_name(queue_name, delay),
+                    durable=True,
+                    arguments={
+                        "x-message-ttl": round(delay * 1000),
+                        "x-dead-letter-exchange": "",
+                        "x-dead-letter-routing-key": queue_name,
+                    },
+                )
         channel = self._channel
 
         async def on_message(message: AbstractIncomingMessage) -> None:
@@ -112,16 +178,41 @@ class RabbitEventBus:
             set_correlation_id(event.correlation_id)
             try:
                 await handler(event)
-            except Exception:
-                raw_retries = (message.headers or {}).get(RETRY_HEADER, 0)
-                retries = raw_retries if isinstance(raw_retries, int) else 0
-                if retries < self.max_retries:
-                    logger.warning("Handler failed for %s, retry %d", event.type, retries + 1)
-                    retry = _to_message(event, retries=retries + 1)
-                    await channel.default_exchange.publish(retry, routing_key=queue_name)
+            except Exception as exc:
+                retries = retries_from_headers(message.headers)
+                decision = decide_retry(retries, self.max_retries, self.retry_delays)
+                if decision.action == "retry":
+                    logger.warning(
+                        "Handler failed for %s (event_id=%s): %s: %s; retry %d/%d in %.1fs",
+                        event.type,
+                        event.event_id,
+                        type(exc).__name__,
+                        exc,
+                        decision.attempt,
+                        self.max_retries,
+                        decision.delay_s,
+                        exc_info=True,
+                    )
+                    target = (
+                        retry_queue_name(queue_name, decision.delay_s)
+                        if decision.delay_s > 0
+                        else queue_name
+                    )
+                    retry = _to_message(event, retries=decision.attempt)
+                    await channel.default_exchange.publish(retry, routing_key=target)
                     await message.ack()
                 else:
-                    logger.exception("Handler failed for %s, sent to dead-letter queue", event.type)
+                    logger.error(
+                        "Handler failed for %s (event_id=%s) after %d retries: %s: %s; "
+                        "sent to dead-letter queue %s.dlq",
+                        event.type,
+                        event.event_id,
+                        decision.attempt,
+                        type(exc).__name__,
+                        exc,
+                        queue_name,
+                        exc_info=True,
+                    )
                     await message.reject(requeue=False)
             else:
                 await message.ack()
