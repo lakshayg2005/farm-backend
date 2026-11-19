@@ -78,6 +78,83 @@ async def test_pools_run_no_orders(
 
 
 # ---------------------------------------------------------------------------
+# GET /pools
+# ---------------------------------------------------------------------------
+
+
+async def _add_pool(
+    session_factory: async_sessionmaker[AsyncSession], pool_date: date, n_stops: int
+) -> DeliveryPool:
+    pool = DeliveryPool(
+        id=uuid4(),
+        pool_date=pool_date,
+        status=PoolStatus.PENDING,
+        total_km=10.0,
+        km_saved=2.0,
+    )
+    order_id = uuid4()
+    async with session_factory() as session, session.begin():
+        session.add(pool)
+        await session.flush()
+        # insert stops out of order to check the response sorts them by seq
+        for seq in reversed(range(1, n_stops + 1)):
+            session.add(
+                PoolStop(
+                    id=uuid4(),
+                    pool_id=pool.id,
+                    order_id=order_id,
+                    stop_type=StopType.PICKUP if seq == 1 else StopType.DROP,
+                    seq=seq,
+                    lat=21.0 + seq / 100,
+                    lng=81.0,
+                    status=StopStatus.PENDING,
+                )
+            )
+    return pool
+
+
+@pytest.mark.asyncio
+async def test_list_pools_returns_only_that_date(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    day = date(2026, 11, 18)
+    first = await _add_pool(session_factory, day, 3)
+    second = await _add_pool(session_factory, day, 2)
+    await _add_pool(session_factory, date(2026, 11, 19), 2)
+
+    resp = await client.get(f"/pools?pool_date={day.isoformat()}", headers=admin_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert {p["id"] for p in body} == {str(first.id), str(second.id)}
+    assert all(p["poolDate"] == day.isoformat() for p in body)
+    by_id = {p["id"]: p for p in body}
+    assert [s["seq"] for s in by_id[str(first.id)]["stops"]] == [1, 2, 3]
+    assert [s["seq"] for s in by_id[str(second.id)]["stops"]] == [1, 2]
+    assert by_id[str(first.id)]["kmSaved"] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_list_pools_empty_date(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+) -> None:
+    resp = await client.get("/pools?pool_date=2030-01-01", headers=admin_headers)
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_list_pools_requires_admin(
+    client: AsyncClient,
+    make_token,
+) -> None:
+    resp = await client.get("/pools", headers=make_token(uuid4(), "customer"))
+    assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # POST /location
 # ---------------------------------------------------------------------------
 

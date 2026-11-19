@@ -3,6 +3,7 @@
 Mounted at /api/v1/logistics by the gateway.
 
 POST  /logistics/pools/run?date     Admin → trigger pooling job now
+GET   /logistics/pools?pool_date    Admin → saved pools for a date
 GET   /logistics/my-route?date      Delivery partner → today's assigned route
 POST  /logistics/stops/{id}/pickup  Delivery partner → confirm pickup at hub
 POST  /logistics/stops/{id}/deliver Delivery partner → confirm delivery + photo + OTP
@@ -150,6 +151,48 @@ async def run_pools(
         pool_outs.append(_pool_out(p, stops))
 
     return PoolRunResponse(pools_created=len(pools), pools=pool_outs)
+
+
+# ---------------------------------------------------------------------------
+# GET /logistics/pools  (Admin only)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/pools",
+    response_model=list[PoolOut],
+    summary="Saved pools for a given date",
+)
+async def list_pools(
+    pool_date: date = Query(default_factory=date.today, description="Date to list pools for"),
+    _user: CurrentUser = Depends(require_roles(Role.ADMIN)),
+    session: AsyncSession = Depends(get_session),
+) -> list[PoolOut]:
+    """Every pool for `pool_date` with its stops in `seq` order, oldest pool first."""
+    pools = list(
+        (
+            await session.execute(
+                select(DeliveryPool)
+                .where(DeliveryPool.pool_date == pool_date)
+                .order_by(DeliveryPool.created_at, DeliveryPool.id)
+            )
+        ).scalars()
+    )
+    if not pools:
+        return []
+
+    stops = (
+        await session.execute(
+            select(PoolStop)
+            .where(PoolStop.pool_id.in_([p.id for p in pools]))
+            .order_by(PoolStop.pool_id, PoolStop.seq)
+        )
+    ).scalars()
+    stops_by_pool: dict[UUID, list[PoolStop]] = {p.id: [] for p in pools}
+    for s in stops:
+        stops_by_pool[s.pool_id].append(s)
+
+    return [_pool_out(p, stops_by_pool[p.id]) for p in pools]
 
 
 # ---------------------------------------------------------------------------
