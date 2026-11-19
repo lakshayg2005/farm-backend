@@ -76,7 +76,7 @@ class FakeGateway:
                 return httpx.Response(409, json={"error": {"code": "PHONE_TAKEN"}})
             user = {"id": str(uuid4()), "farmerVerified": False, "roles": body["roles"]}
             self.users[body["phone"]] = user
-            return httpx.Response(201, json=self.tokens(user))
+            return httpx.Response(201, json=user)  # UserOut: register returns no tokens
         if m := re.fullmatch(r"/identity/users/(.+)/verify-farmer", path):
             assert who == self.admin_id
             next(u for u in self.users.values() if u["id"] == m[1])["farmerVerified"] = True

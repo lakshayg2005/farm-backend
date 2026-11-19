@@ -45,7 +45,7 @@ class FakeOps:
                 return httpx.Response(409, json={})
             self.users[body["phone"]] = {"id": str(uuid4()), "roles": body["roles"]}
             user = {**self.users[body["phone"]], "phone": body["phone"]}
-            return httpx.Response(201, json={"accessToken": f"tok:{body['phone']}", "user": user})
+            return httpx.Response(201, json=user)  # UserOut: register returns no tokens
         if m := re.fullmatch(r"/identity/users/(.+)/roles", path):
             next(u for u in self.users.values() if u["id"] == m[1])["roles"] = body["roles"]
             return httpx.Response(200, json={})

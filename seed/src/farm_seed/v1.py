@@ -22,13 +22,13 @@ def _ensure_user(
     lat: float | None = None,
     lng: float | None = None,
 ) -> dict:
-    """Register, or sign in if a previous run already created the account. Returns the token response."""
+    """Register (unless a previous run already did), then sign in. Returns the token response."""
     body: dict = {"name": name, "phone": phone, "password": PASSWORD, "roles": roles}
     if lat is not None:
         body.update(homeLat=lat, homeLng=lng)
-    response = gw.call("POST", "/identity/register", json=body, ok=(201, 409))
-    if response.status_code == 201:
-        return response.json()
+    # Register returns the new user only (no tokens), and 409 means a previous run made it:
+    # either way, sign in to get tokens.
+    gw.call("POST", "/identity/register", json=body, ok=(201, 409))
     return gw.login(phone, PASSWORD)
 
 

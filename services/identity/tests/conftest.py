@@ -29,7 +29,14 @@ PASSWORD = "correct-horse-1"
 
 @pytest.fixture
 def settings() -> IdentitySettings:
-    return IdentitySettings(jwt_private_key=PRIVATE_KEY, otp_resend_seconds=0, events_enabled=False)
+    # Ignore a developer's .env: its JWT_PUBLIC_KEY_PATH would not match the test private key.
+    return IdentitySettings(
+        _env_file=None,
+        jwt_private_key=PRIVATE_KEY,
+        jwt_public_key_path=None,
+        otp_resend_seconds=0,
+        events_enabled=False,
+    )
 
 
 @pytest.fixture

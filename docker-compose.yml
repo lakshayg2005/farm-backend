@@ -58,7 +58,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z  # community MinIO build; minio/minio is no longer on Docker Hub
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -73,7 +73,7 @@ services:
 
   # Creates the photo bucket, with public read so browsers can show photos and thumbnails.
   minio-init:
-    image: minio/mc:latest
+    image: pgsty/mc:RELEASE.2026-11-12T00-00-00Z
     depends_on:
       minio: {condition: service_healthy}
     entrypoint: >

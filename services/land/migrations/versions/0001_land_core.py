@@ -12,7 +12,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE SCHEMA IF NOT EXISTS land")
     op.create_table(
         "plots",
         sa.Column("id", sa.Uuid(), primary_key=True),

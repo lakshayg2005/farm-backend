@@ -30,6 +30,36 @@ def event_point(value):
     return None
 
 
+NEAREST_CANDIDATES = 5
+
+
+async def _claim_nearest_inspector(session: AsyncSession, location) -> InspectorLocation | None:
+    """Lock the nearest available inspector that no other transaction is claiming.
+
+    PostgreSQL cannot row-lock through a KNN (`<->`) GiST index scan ("attempted to lock invisible
+    tuple"), so read the nearest few without a lock, then lock each by primary key, skipping
+    those another inspection is claiming right now.
+    """
+    candidates = await session.scalars(
+        select(InspectorLocation.inspector_id)
+        .where(InspectorLocation.available.is_(True))
+        .order_by(InspectorLocation.location.op("<->")(location))
+        .limit(NEAREST_CANDIDATES)
+    )
+    for inspector_id in candidates.all():
+        inspector = await session.scalar(
+            select(InspectorLocation)
+            .where(
+                InspectorLocation.inspector_id == inspector_id,
+                InspectorLocation.available.is_(True),
+            )
+            .with_for_update(skip_locked=True)
+        )
+        if inspector is not None:
+            return inspector
+    return None
+
+
 async def create_inspection(
     session: AsyncSession, subject_type: str, subject_id: str, location_value=None, attempt: int = 1
 ):
@@ -45,15 +75,7 @@ async def create_inspection(
         return existing
     point = event_point(location_value)
     location = point_to_db(point) if point else None
-    inspector = None
-    if location is not None:
-        inspector = await session.scalar(
-            select(InspectorLocation)
-            .where(InspectorLocation.available.is_(True))
-            .order_by(InspectorLocation.location.op("<->")(location))
-            .limit(1)
-            .with_for_update(skip_locked=True)
-        )
+    inspector = await _claim_nearest_inspector(session, location) if location is not None else None
     if inspector is not None:
         inspector.available = False
     row = Inspection(

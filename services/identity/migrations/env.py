@@ -27,7 +27,13 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
-    connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{SCHEMA}"'))
+    # init-db.sh creates the schema; service roles lack CREATE on the database, and Postgres
+    # checks that privilege even for IF NOT EXISTS, so only create it when it is missing.
+    exists = connection.execute(
+        text("SELECT 1 FROM pg_namespace WHERE nspname = :s"), {"s": SCHEMA}
+    ).scalar()
+    if not exists:
+        connection.execute(text(f'CREATE SCHEMA "{SCHEMA}"'))
     context.configure(
         connection=connection,
         target_metadata=target_metadata,

@@ -12,7 +12,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE SCHEMA IF NOT EXISTS quality")
     op.create_table(
         "inspector_locations",
         sa.Column("inspector_id", sa.Uuid(), primary_key=True),

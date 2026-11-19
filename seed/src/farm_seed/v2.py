@@ -1,10 +1,27 @@
 """V2 seeding (land) and orders: plots with seasons, reservations taken to different stages with
 crop updates, and produce orders. Needs V1 data first (run seed_v1 before this)."""
 
+import time
 from dataclasses import dataclass
 
-from farm_seed.client import Gateway
+from farm_seed.client import Gateway, SeedError
 from farm_seed.data import PASSWORD, SEASONS, Dataset, V2Plan
+
+
+def _pay_deposit(gw: Gateway, token: str, reservation_id: str, amount: object) -> None:
+    """Order learns about an accepted reservation from the `reservation.accepted` event, so for a
+    moment right after the accept it answers RESERVATION_NOT_FOUND: retry until it has caught up."""
+    body = {"amount": amount, "kind": "DEPOSIT", "referenceId": reservation_id}
+    deadline = time.monotonic() + 30
+    while True:
+        paid = gw.call(
+            "POST", "/order/orders/payments/intent", token=token, json=body, ok=(200, 201, 404)
+        )
+        if paid.status_code != 404:
+            return
+        if time.monotonic() >= deadline:
+            raise SeedError(f"order never saw reservation {reservation_id}: is RabbitMQ up?")
+        time.sleep(0.5)
 
 
 @dataclass
@@ -89,12 +106,7 @@ def seed_v2(gw: Gateway, data: Dataset, plan: V2Plan) -> V2Summary:
         accepted = gw.call("POST", f"/land/reservations/{made['id']}/accept", token=f_token).json()
         if res.stage == "ACCEPTED":
             continue
-        gw.call(
-            "POST",
-            "/order/orders/payments/intent",
-            token=c_token,
-            json={"amount": accepted["deposit"], "kind": "DEPOSIT", "referenceId": made["id"]},
-        )
+        _pay_deposit(gw, c_token, made["id"], accepted["deposit"])
         # land turns the reservation ACTIVE when it hears about the payment (an event), so crop
         # updates can be rejected for a moment: they are best effort
         for stage, note in res.updates:
