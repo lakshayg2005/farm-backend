@@ -453,3 +453,44 @@ async def test_track_order_live_with_partner_location(
     assert data["partnerLat"] == pytest.approx(21.15)
     assert data["partnerLng"] == pytest.approx(81.25)
     assert data["stop"]["address"] == "Sector 5, Durg"
+
+
+@pytest.mark.asyncio
+async def test_only_the_assigned_partner_can_work_a_pool(
+    client: AsyncClient,
+    make_token,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    owner, other = uuid4(), uuid4()
+    pool_id, stop_id = uuid4(), uuid4()
+    async with session_factory() as session, session.begin():
+        session.add(
+            DeliveryPool(
+                id=pool_id,
+                pool_date=date(2026, 11, 18),
+                partner_id=owner,
+                status=PoolStatus.ASSIGNED,
+            )
+        )
+        session.add(
+            PoolStop(
+                id=stop_id,
+                pool_id=pool_id,
+                order_id=uuid4(),
+                stop_type=StopType.PICKUP,
+                seq=1,
+                lat=21.1,
+                lng=81.2,
+                status=StopStatus.PENDING,
+            )
+        )
+
+    denied = await client.post(
+        f"/stops/{stop_id}/pickup", json={}, headers=make_token(other, "delivery")
+    )
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "POOL_ASSIGNED_TO_OTHER"
+    ok = await client.post(
+        f"/stops/{stop_id}/pickup", json={}, headers=make_token(owner, "delivery")
+    )
+    assert ok.status_code == 200

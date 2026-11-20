@@ -10,6 +10,8 @@ class LogisticsSettings(ServiceSettings):
     dbscan_eps_km: float = 3.0
     # Minimum pool capacity in kg (split cluster when exceeded)
     partner_capacity_kg: float = 50.0
+    # At most this many customer drops in one pool (HLD section 14, step 3)
+    max_drops_per_pool: int = 15
     # Outbox relay and RabbitMQ
     events_enabled: bool = True
     # Internal URL of the order service (used to fetch READY_FOR_DISPATCH orders)

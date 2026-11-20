@@ -87,10 +87,18 @@ def _stop_out(s: PoolStop) -> StopOut:
     )
 
 
-async def _get_stop(session: AsyncSession, stop_id: UUID) -> PoolStop:
+async def _get_stop(
+    session: AsyncSession, stop_id: UUID, user: CurrentUser | None = None
+) -> PoolStop:
     stop = await session.get(PoolStop, stop_id)
     if stop is None:
         raise NotFound("Stop not found", code="STOP_NOT_FOUND")
+    if user is not None and not user.has_any(Role.ADMIN):
+        pool = await session.get(DeliveryPool, stop.pool_id)
+        if pool is not None and pool.partner_id is not None and pool.partner_id != UUID(user.id):
+            raise AppError(
+                "POOL_ASSIGNED_TO_OTHER", "This pool is assigned to another delivery partner", 403
+            )
     return stop
 
 
@@ -258,7 +266,7 @@ async def confirm_pickup(
 ) -> StopOut:
     pickup_body = body or PickupIn()
     async with session.begin():
-        stop = await _get_stop(session, stop_id)
+        stop = await _get_stop(session, stop_id, user)
         if stop.stop_type != StopType.PICKUP:
             raise AppError("WRONG_STOP_TYPE", "This stop is not a PICKUP stop", 422)
         if stop.status == StopStatus.DONE:
@@ -315,7 +323,7 @@ async def confirm_delivery(
     session: AsyncSession = Depends(get_session),
 ) -> StopOut:
     async with session.begin():
-        stop = await _get_stop(session, stop_id)
+        stop = await _get_stop(session, stop_id, user)
         if stop.stop_type != StopType.DROP:
             raise AppError("WRONG_STOP_TYPE", "This stop is not a DROP stop", 422)
         if stop.status == StopStatus.DONE:
@@ -380,7 +388,7 @@ async def arrive_at_stop(
     session: AsyncSession = Depends(get_session),
 ) -> StopOut:
     async with session.begin():
-        stop = await _get_stop(session, stop_id)
+        stop = await _get_stop(session, stop_id, user)
         if stop.status != StopStatus.DONE:
             stop.status = StopStatus.ARRIVED
     return _stop_out(stop)
@@ -404,7 +412,7 @@ async def skip_stop(
 ) -> StopOut:
     action_body = body or StopActionIn()
     async with session.begin():
-        stop = await _get_stop(session, stop_id)
+        stop = await _get_stop(session, stop_id, user)
         stop.status = StopStatus.SKIPPED
         if action_body.notes or action_body.reason:
             stop.notes = action_body.notes or action_body.reason

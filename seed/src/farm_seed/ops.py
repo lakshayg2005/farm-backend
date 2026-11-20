@@ -68,7 +68,13 @@ def _login(gw: Gateway, cache: dict[str, str], phone: str) -> str:
     return cache[phone]
 
 
-def _staff(gw: Gateway, admin: str, summary: OpsSummary, tokens: dict[str, str]) -> dict[str, str]:
+def _staff(
+    gw: Gateway,
+    admin: str,
+    summary: OpsSummary,
+    tokens: dict[str, str],
+    partner_phone: dict[str, str],
+) -> dict[str, str]:
     """Create inspectors (role granted by the admin) and delivery partners. Returns inspector
     token by user id."""
     by_id: dict[str, str] = {}
@@ -92,7 +98,8 @@ def _staff(gw: Gateway, admin: str, summary: OpsSummary, tokens: dict[str, str])
         by_id[user["id"]] = token
         summary.inspectors += 1
     for name, phone in PARTNERS:
-        _ensure_user(gw, name, phone, ["delivery"])
+        partner = _ensure_user(gw, name, phone, ["delivery"])["user"]
+        partner_phone[partner["id"]] = phone
         summary.partners += 1
     return by_id
 
@@ -127,7 +134,8 @@ def seed_operations(
     summary = OpsSummary()
     tokens: dict[str, str] = {}
     admin = gw.login(admin_phone, admin_password)["accessToken"]
-    inspector_tokens = _staff(gw, admin, summary, tokens)
+    partner_phone: dict[str, str] = {}
+    inspector_tokens = _staff(gw, admin, summary, tokens, partner_phone)
     orders = _confirmed_orders(gw, farmer_phones, tokens)
 
     # --- cancel and pack ---
@@ -204,8 +212,9 @@ def seed_operations(
 
     # --- delivery: partners work through the pools ---
     for i, pool in enumerate(pools):
-        partner_phone = PARTNERS[i % len(PARTNERS)][1]
-        token = _login(gw, tokens, partner_phone)
+        # the pooling job assigns a partner; fall back to taking turns if it could not
+        phone = partner_phone.get(pool.get("partnerId") or "") or PARTNERS[i % len(PARTNERS)][1]
+        token = _login(gw, tokens, phone)
         mode = i % 4  # 0 and 3: delivered, 1: pickups only (in progress), 2: left waiting
         if mode == 2:
             continue

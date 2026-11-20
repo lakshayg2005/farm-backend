@@ -89,6 +89,9 @@ class DeliveryPartner(Base):
     vehicle_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     capacity_kg: Mapped[float] = mapped_column(Float, default=50.0)
     is_online: Mapped[bool] = mapped_column(Boolean, default=False)
+    # home point from identity, used to prefer the partner nearest a pool's first pickup
+    home_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    home_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

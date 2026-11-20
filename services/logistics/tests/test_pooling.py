@@ -173,3 +173,26 @@ async def test_pickup_before_drop_ordering(
         assert stops[1].stop_type == "PICKUP"
         assert stops[2].stop_type == "DROP"
         assert stops[3].stop_type == "DROP"
+
+
+@pytest.mark.asyncio
+async def test_pools_are_assigned_to_the_least_loaded_partner(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    from logistics_service.db import DeliveryPartner, PoolStatus
+
+    async with session_factory() as session, session.begin():
+        session.add_all(
+            [
+                DeliveryPartner(name="Rider Asha", home_lat=21.1, home_lng=81.3),
+                DeliveryPartner(name="Rider Bharat", home_lat=21.5, home_lng=81.7),
+            ]
+        )
+    settings = LogisticsSettings(events_enabled=False, dbscan_eps_km=3.0)
+    orders = [_order(21.1, 81.3), _order(21.5, 81.7)]
+    with patch("logistics_service.pooling.get_route", new=AsyncMock(return_value=_MOCK_ROUTE)):
+        pools = await run_pooling(POOL_DATE, orders, session_factory, settings)
+
+    assert len(pools) == 2
+    assert all(p.status == PoolStatus.ASSIGNED and p.assigned_at is not None for p in pools)
+    assert len({p.partner_id for p in pools}) == 2  # one pool each

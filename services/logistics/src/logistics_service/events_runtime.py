@@ -1,4 +1,4 @@
-"""Lifespan: start the outbox relay (publishes pool.assigned to RabbitMQ)."""
+"""Lifespan: start the outbox relay (publishes pool.assigned) and the identity consumer."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from farm_common.events import RabbitEventBus
 from farm_common.outbox import run_relay
+from logistics_service.consumers import BINDINGS, make_handler
 from logistics_service.database import get_session_factory
 from logistics_service.db import OutboxEvent
 from logistics_service.settings import get_logistics_settings
@@ -32,7 +33,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.exception("Could not connect to RabbitMQ; events will queue in outbox")
             bus = None
         if bus is not None:
-            relay = asyncio.create_task(run_relay(get_session_factory(), OutboxEvent, bus))
+            session_factory = get_session_factory()
+            await bus.subscribe(BINDINGS, make_handler(session_factory))
+            relay = asyncio.create_task(run_relay(session_factory, OutboxEvent, bus))
 
     try:
         yield

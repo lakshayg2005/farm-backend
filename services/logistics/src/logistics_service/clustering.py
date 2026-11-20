@@ -123,12 +123,14 @@ def cluster_orders(
     orders: list[Order],
     eps_km: float = 3.0,
     capacity_kg: float = 50.0,
+    max_orders: int = 15,
 ) -> list[list[Order]]:
     """Cluster `orders` into delivery pools.
 
     Returns a list of pools, each a list of order dicts satisfying:
     - All drop locations within ~eps_km of each other.
     - Total weight_kg ≤ capacity_kg (or best-effort if a single order exceeds it).
+    - At most `max_orders` orders (one drop each).
     """
     if not orders:
         return []
@@ -136,6 +138,9 @@ def cluster_orders(
     pools: list[list[Order]] = []
     for cluster in raw_clusters:
         for sub in _split_by_capacity(cluster, capacity_kg):
-            if sub:
-                pools.append(sub)
+            # also cap the number of drops per vehicle
+            for start in range(0, len(sub), max(1, max_orders)):
+                chunk = sub[start : start + max(1, max_orders)]
+                if chunk:
+                    pools.append(chunk)
     return pools

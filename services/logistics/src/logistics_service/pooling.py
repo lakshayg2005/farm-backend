@@ -23,12 +23,14 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from geoalchemy2.elements import WKTElement
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from farm_common.events import Event
 from farm_common.outbox import add_event
 from logistics_service.clustering import cluster_orders
 from logistics_service.db import (
+    DeliveryPartner,
     DeliveryPool,
     OutboxEvent,
     PoolStatus,
@@ -37,6 +39,7 @@ from logistics_service.db import (
     StopType,
 )
 from logistics_service.routing import RouteResult, get_route
+from logistics_service.sequencing import PartnerCandidate, pick_partner, sequence_points
 from logistics_service.settings import LogisticsSettings
 
 logger = logging.getLogger(__name__)
@@ -82,6 +85,7 @@ async def _persist_pool(
     cluster: list[Order],
     route: RouteResult | None,
     depart: datetime,
+    partner_id: UUID | None = None,
 ) -> tuple[DeliveryPool, list[PoolStop]]:
     """Write one DeliveryPool + its PoolStop rows, publish pool.assigned.
 
@@ -100,8 +104,9 @@ async def _persist_pool(
     pool = DeliveryPool(
         id=pool_id,
         pool_date=pool_date,
-        partner_id=None,  # assigned later by dispatch
-        status=PoolStatus.PENDING,
+        partner_id=partner_id,
+        status=PoolStatus.ASSIGNED if partner_id else PoolStatus.PENDING,
+        assigned_at=datetime.now(UTC) if partner_id else None,
         geom=geom,  # type: ignore[arg-type]
         total_km=total_km,
         km_saved=km_saved,
@@ -110,7 +115,11 @@ async def _persist_pool(
     session.add(pool)
 
     # Reorder cluster by OSRM waypoint_order if available (skip index 0 = hub)
-    ordered = cluster
+    # Without OSRM's trip order: nearest-neighbour + 2-opt over the drop points, from the hub
+    hub = (cluster[0]["hub_lat"], cluster[0]["hub_lng"])
+    ordered = [
+        cluster[i] for i in sequence_points(hub, [(o["drop_lat"], o["drop_lng"]) for o in cluster])
+    ]
     if route and route.waypoint_order:
         # waypoint_order contains original indices into [hub, *stops]
         # index 0 is hub; drop it and map back to cluster
@@ -118,17 +127,13 @@ async def _persist_pool(
         if len(stop_order) == len(cluster):
             ordered = [cluster[i] for i in stop_order]
 
-    # ETA lookup: route.etas are aligned to route.waypoint_order (stops only)
-    etas: list[datetime | None] = []
+    # ETA per order: route.etas follow route.waypoint_order (stops only, hub excluded)
+    eta_by_order: dict[str, datetime] = {}
     if route and route.etas:
-        eta_map: dict[int, datetime] = {}
         stop_indices = [i - 1 for i in route.waypoint_order if i > 0]
         for pos, orig_idx in enumerate(stop_indices):
-            if pos < len(route.etas):
-                eta_map[orig_idx] = route.etas[pos]
-        etas = [eta_map.get(i) for i in range(len(cluster))]
-    else:
-        etas = [None] * len(cluster)
+            if pos < len(route.etas) and 0 <= orig_idx < len(cluster):
+                eta_by_order[str(cluster[orig_idx]["order_id"])] = route.etas[pos]
 
     stops: list[PoolStop] = []
     seq = 1
@@ -151,17 +156,17 @@ async def _persist_pool(
             weight_kg=order.get("weight_kg"),
         )
 
-    # We model each order as 2 stops: PICKUP at hub, DROP at customer
-    for i, order in enumerate(ordered):
-        eta = etas[i] if i < len(etas) else None
-        pickup = _make_stop(order, StopType.PICKUP, seq, eta)
+    # We model each order as 2 stops: PICKUP at its farm/hub, DROP at the customer. All pickups
+    # come first (each drop after its pickup), visiting the farms in a short order too.
+    pickup_order = sequence_points(hub, [(o["hub_lat"], o["hub_lng"]) for o in ordered])
+    for i in pickup_order:
+        pickup = _make_stop(ordered[i], StopType.PICKUP, seq, None)
         session.add(pickup)
         stops.append(pickup)
         seq += 1
 
-    for i, order in enumerate(ordered):
-        eta = etas[i] if i < len(etas) else None
-        drop = _make_stop(order, StopType.DROP, seq, eta)
+    for order in ordered:
+        drop = _make_stop(order, StopType.DROP, seq, eta_by_order.get(str(order["order_id"])))
         session.add(drop)
         stops.append(drop)
         seq += 1
@@ -177,6 +182,39 @@ async def _persist_pool(
         ),
     )
     return pool, stops
+
+
+async def _choose_partner(
+    session: AsyncSession, pool_date: date, first_pickup: tuple[float, float]
+) -> UUID | None:
+    """The least-loaded known delivery partner for the day, nearest the first pickup on a tie."""
+    partners = (await session.execute(select(DeliveryPartner))).scalars().all()
+    if not partners:
+        return None  # nobody known yet: the first partner to confirm a pickup takes the pool
+    loads = dict(
+        (
+            await session.execute(
+                select(DeliveryPool.partner_id, func.count())
+                .where(DeliveryPool.pool_date == pool_date, DeliveryPool.partner_id.is_not(None))
+                .group_by(DeliveryPool.partner_id)
+            )
+        ).all()
+    )
+    chosen = pick_partner(
+        [
+            PartnerCandidate(
+                id=p.id,
+                name=p.name,
+                pools_today=int(loads.get(p.id, 0)),
+                home=(p.home_lat, p.home_lng)
+                if p.home_lat is not None and p.home_lng is not None
+                else None,
+            )
+            for p in partners
+        ],
+        first_pickup,
+    )
+    return chosen.id if chosen else None
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +244,7 @@ async def run_pooling(
         orders,
         eps_km=settings.dbscan_eps_km,
         capacity_kg=settings.partner_capacity_kg,
+        max_orders=settings.max_drops_per_pool,
     )
     logger.info("Clustered %d orders into %d pools on %s", len(orders), len(pools_list), pool_date)
 
@@ -225,7 +264,8 @@ async def run_pooling(
         )
 
         async with session_factory() as session, session.begin():
-            pool, _stops = await _persist_pool(session, pool_date, cluster, route, depart)
+            partner = await _choose_partner(session, pool_date, (hub_lat, hub_lng))
+            pool, _stops = await _persist_pool(session, pool_date, cluster, route, depart, partner)
         created.append(pool)
 
     logger.info("Created %d pools for %s", len(created), pool_date)
