@@ -70,6 +70,9 @@ class PaymentKind(StrEnum):
     DEPOSIT = "DEPOSIT"
     BALANCE = "BALANCE"
     REFUND = "REFUND"
+    # what the farmer earns from a completed order (HLD section 11, step 6); written by the
+    # order service, never requested by a client
+    PAYOUT = "PAYOUT"
 
 
 # --- shared pieces -----------------------------------------------------------------------------
@@ -301,6 +304,20 @@ class OrderSummary(ApiModel):
     currency: str = "INR"
     created_at: datetime
     updated_at: datetime
+
+
+class Payout(ApiModel):
+    order_id: UUID
+    amount: float
+    currency: str = "INR"
+    paid_at: datetime
+
+
+class PayoutList(ApiModel):
+    """A farmer's payouts, newest first, and their sum."""
+
+    items: list[Payout]
+    total: float
 
 
 class OrderList(ApiModel):

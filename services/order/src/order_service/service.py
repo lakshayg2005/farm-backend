@@ -67,6 +67,8 @@ from order_service.schemas import (
     PaymentKind,
     PaymentRecord,
     PaymentStatus,
+    Payout,
+    PayoutList,
 )
 from order_service.settings import OrderSettings
 from order_service.stock import ReservedLine, StockClient, StockRequestItem
@@ -361,8 +363,48 @@ async def _transition(
     order.status = new.value
     order.updated_at = now
     session.add(OrderEventRow(order_id=order.id, status=new.value, note=note, occurred_at=now))
+    if new == OrderStatus.COMPLETED:
+        _record_payout(session, order)
     if event_type:
         _publish(session, event_type, order, **extra)
+
+
+def _record_payout(session: AsyncSession, order: OrderRow) -> None:
+    """The farmer is paid the item value (not the delivery fee) when an order completes. A buy-back
+    harvest order pays the customer instead, so it records no farmer payout."""
+    if order.farm_owner_id is None or order.harvest_option == "BUYBACK":
+        return
+    session.add(
+        PaymentRow(
+            id=uuid4(),
+            customer_id=order.customer_id,
+            kind=PaymentKind.PAYOUT.value,
+            amount=order.subtotal,
+            currency=order.currency,
+            reference_id=order.farm_owner_id,
+            order_id=order.id,
+            status=PaymentStatus.SUCCEEDED.value,
+        )
+    )
+
+
+async def list_payouts(session: AsyncSession, user: CurrentUser, limit: int) -> PayoutList:
+    query = select(PaymentRow).where(PaymentRow.kind == PaymentKind.PAYOUT.value)
+    if not user.has_any(Role.ADMIN):
+        query = query.where(PaymentRow.reference_id == UUID(user.id))
+    rows = (
+        (await session.execute(query.order_by(PaymentRow.created_at.desc()).limit(limit)))
+        .scalars()
+        .all()
+    )
+    items = [
+        Payout(
+            order_id=r.order_id, amount=float(r.amount), currency=r.currency, paid_at=r.created_at
+        )
+        for r in rows
+        if r.order_id is not None
+    ]
+    return PayoutList(items=items, total=round(sum(i.amount for i in items), 2))
 
 
 def _publish(session: AsyncSession, event_type: str, order: OrderRow, **extra: Any) -> None:

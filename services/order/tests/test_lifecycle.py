@@ -534,3 +534,19 @@ async def test_dispatch_feed_respects_the_delivery_date_and_drops_pooled_orders(
         "/internal/orders/ready-for-dispatch", params={"date": "2999-01-01"}
     )
     assert pooled.json() == []
+
+
+async def test_completing_an_order_records_the_farmers_payout(api):
+    order_id = await _dispatchable(api)
+    await deliver(api, "delivery.completed", orderId=order_id)
+
+    detail = (await api.http.get(f"/orders/{order_id}")).json()
+    payout = [p for p in detail["payments"] if p["kind"] == "PAYOUT"]
+    assert len(payout) == 1 and payout[0]["amount"] == detail["subtotal"]
+
+    api.login(FARMER)
+    mine = (await api.http.get("/orders/payouts")).json()
+    assert [p["orderId"] for p in mine["items"]] == [order_id]
+    assert mine["total"] == detail["subtotal"]
+    api.login(user(uuid4(), Role.FARMER))
+    assert (await api.http.get("/orders/payouts")).json() == {"items": [], "total": 0}

@@ -29,6 +29,7 @@ from order_service.schemas import (
     PaymentIntentCreate,
     PaymentKind,
     PaymentWebhook,
+    PayoutList,
 )
 from order_service.settings import OrderSettings, get_order_settings
 from order_service.stock import StockClient
@@ -206,6 +207,21 @@ async def list_orders(
     session: AsyncSession = Depends(get_session),
 ) -> OrderList:
     return await service.list_orders(session, user, status, role, cursor, limit)
+
+
+@router.get(
+    "/orders/payouts",
+    response_model=PayoutList,
+    summary="Farmer: payouts for completed orders",
+    description="One PAYOUT per completed order of my farms (the item value, not the delivery fee).",
+    responses=_AUTH_ERRORS,
+)
+async def list_payouts(
+    limit: int = Query(100, ge=1, le=500),
+    user: CurrentUser = Depends(_farmer_or_admin),
+    session: AsyncSession = Depends(get_session),
+) -> PayoutList:
+    return await service.list_payouts(session, user, limit)
 
 
 @router.get(

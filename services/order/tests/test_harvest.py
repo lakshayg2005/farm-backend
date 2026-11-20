@@ -434,7 +434,11 @@ async def test_delivery_completed_settles_the_balance_and_completes_the_order(ap
     assert order["status"] == "COMPLETED"
     assert order["balanceDue"] == 0
     kinds = [(p["kind"], p["amount"], p["status"]) for p in order["payments"]]
-    assert kinds == [("DEPOSIT", 200, "SUCCEEDED"), ("BALANCE", 720, "SUCCEEDED")]
+    assert kinds == [
+        ("DEPOSIT", 200, "SUCCEEDED"),
+        ("BALANCE", 720, "SUCCEEDED"),
+        ("PAYOUT", 900, "SUCCEEDED"),  # the farmer is paid the crop value, not the delivery fee
+    ]
     balance = [
         PaymentSucceededPayload.model_validate(e.payload)
         for e in await api.outbox("payment.succeeded")
@@ -469,6 +473,7 @@ async def test_a_deposit_above_the_lower_grade_price_is_refunded(api):
     assert [(p["kind"], p["amount"]) for p in done["payments"]] == [
         ("DEPOSIT", 200),
         ("REFUND", 80),
+        ("PAYOUT", 100),
     ]
 
 

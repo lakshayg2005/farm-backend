@@ -44,10 +44,11 @@ class PaymentRow(Base):
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     customer_id: Mapped[UUID] = mapped_column(Uuid, index=True)
-    kind: Mapped[str] = mapped_column(String(20))  # FULL, DEPOSIT, BALANCE or REFUND
+    kind: Mapped[str] = mapped_column(String(20))  # FULL, DEPOSIT, BALANCE, REFUND or PAYOUT
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     currency: Mapped[str] = mapped_column(String(3), default="INR")
-    # reservation id for DEPOSIT / BALANCE (V2); the checkout id once a FULL payment is settled
+    # reservation id for DEPOSIT / BALANCE (V2); the checkout id once a FULL payment is settled;
+    # the farmer's user id for a PAYOUT (customer_id then holds the paying customer)
     reference_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     order_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(20))

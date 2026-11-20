@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     Date,
     DateTime,
@@ -17,7 +18,7 @@ from sqlalchemy import (
     Uuid,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from farm_common.outbox import OutboxMixin, ProcessedEventMixin
@@ -114,6 +115,33 @@ class CropUpdate(Base):
     media_ids: Mapped[list[UUID]] = mapped_column(ARRAY(Uuid), default=list)
     location: Mapped[WKBElement | None] = mapped_column(
         Geometry("POINT", srid=4326, spatial_index=False), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class Agreement(Base):
+    """What farmer and customer agreed when the reservation was accepted (price, deposit, terms)."""
+
+    __tablename__ = "agreements"
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    reservation_id: Mapped[UUID] = mapped_column(
+        ForeignKey(f"{SCHEMA}.reservations.id", ondelete="CASCADE"), unique=True
+    )
+    farmer_id: Mapped[UUID] = mapped_column(Uuid)
+    customer_id: Mapped[UUID] = mapped_column(Uuid)
+    plot_id: Mapped[UUID] = mapped_column(Uuid)
+    plot_title: Mapped[str] = mapped_column(String(120))
+    season: Mapped[str] = mapped_column(String(40))
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    crop_id: Mapped[str] = mapped_column(String(40))
+    expected_qty_kg: Mapped[float] = mapped_column(Numeric(12, 3))
+    price_per_kg: Mapped[float] = mapped_column(Numeric(12, 2))
+    total: Mapped[float] = mapped_column(Numeric(12, 2))
+    deposit: Mapped[float] = mapped_column(Numeric(12, 2))
+    balance: Mapped[float] = mapped_column(Numeric(12, 2))
+    terms: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), default=list
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 

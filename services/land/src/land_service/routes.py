@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Response
 from geoalchemy2 import Geography, Geometry
@@ -11,10 +11,12 @@ from farm_common.auth import CurrentUser, Role, require_roles
 from farm_common.errors import AppError
 from farm_common.events import Event
 from farm_common.outbox import add_event
+from land_service.agreements import build_terms
 from land_service.database import get_session
-from land_service.db import CropUpdate, OutboxEvent, Plot, PlotSeason, Reservation
+from land_service.db import Agreement, CropUpdate, OutboxEvent, Plot, PlotSeason, Reservation
 from land_service.geo import geometry_json, point_to_db, polygon_to_db
 from land_service.schemas import (
+    AgreementOut,
     CropUpdateCreate,
     PlotCreate,
     PlotOut,
@@ -502,8 +504,44 @@ async def accept_reservation(
         raise AppError(
             "RESERVATION_NOT_PENDING", "Only an unexpired pending reservation can be accepted", 409
         )
+    season = await session.get(PlotSeason, row.plot_season_id)
+    plot = await session.get(Plot, season.plot_id) if season else None
+    if season is None or plot is None:
+        raise AppError("PLOT_SEASON_NOT_FOUND", "The reserved plot-season no longer exists", 409)
+    rate = get_land_settings().deposit_rate
+    agreed = build_terms(
+        plot_title=plot.title,
+        area_acres=float(plot.area_acres),
+        season=season.season,
+        start_date=season.start_date,
+        end_date=season.end_date,
+        crop_id=row.crop_id,
+        expected_qty_kg=float(row.expected_qty_kg),
+        price_per_kg=float(season.price),
+        deposit_rate=rate,
+    )
     row.status = "ACCEPTED"
-    row.deposit = float(row.total or 0) * get_land_settings().deposit_rate
+    row.total = agreed.total
+    row.deposit = agreed.deposit
+    agreement = Agreement(
+        id=uuid4(),
+        reservation_id=row.id,
+        farmer_id=row.farmer_id,
+        customer_id=row.customer_id,
+        plot_id=plot.id,
+        plot_title=plot.title,
+        season=season.season,
+        start_date=season.start_date,
+        end_date=season.end_date,
+        crop_id=row.crop_id,
+        expected_qty_kg=float(row.expected_qty_kg),
+        price_per_kg=float(season.price),
+        total=agreed.total,
+        deposit=agreed.deposit,
+        balance=agreed.balance,
+        terms=agreed.terms,
+    )
+    session.add(agreement)
     add_event(
         session,
         OutboxEvent,
@@ -515,12 +553,31 @@ async def accept_reservation(
                 "customerId": str(row.customer_id),
                 "farmerId": str(row.farmer_id),
                 "deposit": float(row.deposit),
+                "agreementId": str(agreement.id),
             },
         ),
     )
     await session.commit()
     await session.refresh(row)
     return reservation_out(row)
+
+
+@router.get(
+    "/reservations/{reservation_id}/agreement", response_model=AgreementOut, tags=["reservations"]
+)
+async def get_agreement(
+    reservation_id: UUID,
+    user: CurrentUser = Depends(require_roles(Role.FARMER, Role.CUSTOMER, Role.ADMIN)),
+    session: AsyncSession = Depends(get_session),
+):
+    """The agreement made when the farmer accepted: price, deposit, balance and terms."""
+    await owned_reservation(session, reservation_id, user, [Role.FARMER, Role.CUSTOMER])
+    agreement = await session.scalar(
+        select(Agreement).where(Agreement.reservation_id == reservation_id)
+    )
+    if agreement is None:
+        raise AppError("AGREEMENT_NOT_FOUND", "There is no agreement until the farmer accepts", 404)
+    return AgreementOut.model_validate(agreement, from_attributes=True)
 
 
 @router.post(

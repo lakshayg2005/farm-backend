@@ -109,6 +109,26 @@ class ReservationOut(ApiModel):
     expires_at: datetime
 
 
+class AgreementOut(ApiModel):
+    id: UUID
+    reservation_id: UUID
+    farmer_id: UUID
+    customer_id: UUID
+    plot_id: UUID
+    plot_title: str
+    season: str
+    start_date: date
+    end_date: date
+    crop_id: str
+    expected_qty_kg: float
+    price_per_kg: float
+    total: float
+    deposit: float
+    balance: float
+    terms: list[str]
+    created_at: datetime
+
+
 class CropUpdateCreate(ApiModel):
     stage: Literal["SOWN", "GROWING", "FLOWERING"]
     note: str | None = None
