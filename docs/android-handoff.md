@@ -207,8 +207,8 @@ turn the server off and every screen shows an error with Retry, never data.
 
 ### A2. Make each feature correct against the real backend (2 to 3 days)
 Work through the checklist below, one feature per PR, verifying each against the seeded demo
-backend (accounts in `farm-backend/docs/DEMO.md` once published; until then use accounts you
-register yourself):
+backend (logins and the story are in `farm-backend/docs/DEMO.md`; reset the backend with
+`scripts/reset-demo.sh`):
 
 | # | Feature | Pass condition |
 | --- | --- | --- |

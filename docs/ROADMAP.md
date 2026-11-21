@@ -8,14 +8,32 @@ verified end to end.
 
 | Phase | What | State |
 | --- | --- | --- |
-| 0 | Sync repos to `main`, clean stack on an empty volume | Done locally |
-| 1 | Live audit of every feature against the real backend | Started: stack boots from scratch, existing seed runs end to end (V1, V2, operations) |
-| 2 | Sync: remove fake data and mock logins, regenerate API types, working photos | Next |
-| 3 | Curated demo seed and `docs/DEMO.md` | |
-| 4 | Web redesign: direction C "Ledger" chosen | Ready to start after Phase 2 |
-| 5 | Mobile redesign: Kotlin app, handed to the Android session ([android-handoff.md](android-handoff.md)) | Brief written, direction C tokens included |
-| 6 | End-to-end tests (Playwright, API flows), screenshots, VM deploy, demo script | |
+| 0 | Sync repos to `main`, clean stack on an empty volume | Done |
+| 1 | Live audit of every feature against the real backend | Done: findings below |
+| 2 | Sync: fix client bugs, regenerate API types, working photos | Done for the website (farm-web #27) and backend (#64, #66). Mobile fakes are in [android-handoff.md](android-handoff.md) |
+| 3 | Curated demo seed, [DEMO.md](DEMO.md), `scripts/reset-demo.sh` | Done (#65); local stack and the team VM reseeded |
+| 4 | Web redesign, direction C "Ledger" | Next |
+| 5 | Mobile redesign: Kotlin app, handed to the Android session | Brief written, direction C tokens included |
+| 6 | End-to-end tests (Playwright, API flows), screenshots, VM deploy, demo script | Playwright added to the web repo; tests not written yet |
 | 7 | New features | |
+
+## Fixed so far
+
+- **Photos were silently lost** (backend #64): the media and logistics workers shared arq's default queue,
+  so the logistics worker took about half of the media jobs and dropped them. 11 of 40 test uploads stuck,
+  now 0 of 60.
+- **Photo URLs answered 403** after a slow storage start (backend #66): the public-read policy was applied
+  once at startup. It now retries until storage answers.
+- **Wrong season could be reserved** (web #27): plot-season ids were not used for selection.
+- Farmer payouts now come from the payouts endpoint; Leaflet is bundled instead of loaded from a CDN.
+
+## Still open
+
+- Reserving a season that has already ended is allowed by the API (the demo seed avoids offering them).
+- Admin pooling page says "1 deliveries" (plural form).
+- Crop updates show the day they were created, not the photo's capture time.
+- Mobile apps: fake-data fallbacks, mock logins, fabricated reservations (android-handoff.md section 5).
+- Web: no notification inbox, thin admin dashboard, no admin orders or dispute view (Phase 7).
 
 ## Phase 1 findings so far
 
