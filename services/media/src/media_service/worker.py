@@ -28,7 +28,7 @@ from farm_common.outbox import add_event
 from media_service.db import Media, OutboxEvent
 from media_service.geo import GEO_KINDS, GeoResolver, check_location
 from media_service.imaging import NotAnImage, process_image
-from media_service.jobs import PROCESS_MEDIA, ArqQueue
+from media_service.jobs import PROCESS_MEDIA, QUEUE_NAME, ArqQueue
 from media_service.schemas import GeoStatus, MediaStatus, OwnerType
 from media_service.settings import MediaSettings, get_media_settings
 from media_service.storage import ObjectStore
@@ -188,5 +188,6 @@ class WorkerSettings:
     ]  # type: ignore[arg-type]
     cron_jobs = [cron(requeue_stuck, second=0, run_at_startup=True)]  # type: ignore[arg-type]
     on_startup = startup
+    queue_name = QUEUE_NAME
     redis_settings = RedisSettings.from_dsn(get_media_settings().redis_url)
     keep_result = 300

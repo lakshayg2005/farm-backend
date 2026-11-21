@@ -11,9 +11,10 @@ from sqlalchemy import update
 from media_service.db import Media
 from media_service.geo import HttpGeoResolver
 from media_service.imaging import read_exif
+from media_service.jobs import QUEUE_NAME, ArqQueue
 from media_service.schemas import OwnerType
 from media_service.settings import MediaSettings
-from media_service.worker import process_media, requeue_stuck
+from media_service.worker import WorkerSettings, process_media, requeue_stuck
 
 KM = 0.009  # degrees of latitude per km (roughly)
 FARM = (21.19, 81.28)
@@ -170,3 +171,21 @@ async def test_sweeper_requeues_stuck_photos(uploader, make_photo, session_facto
     assert await requeue_stuck(uploader.ctx()) == 1
     assert await uploader.process()
     assert (await uploader.client.get(f"/{ticket['mediaId']}")).json()["status"] == "READY"
+
+
+def test_media_jobs_use_their_own_queue():
+    """arq's default queue is shared by every worker on the Redis; the logistics worker used to take
+    media jobs it could not run, so about half of the photos stayed PROCESSING until the sweeper."""
+    assert QUEUE_NAME != "arq:queue"
+    assert WorkerSettings.queue_name == QUEUE_NAME
+
+
+async def test_enqueue_targets_the_media_queue():
+    calls = []
+
+    class Pool:
+        async def enqueue_job(self, *args, **kwargs):
+            calls.append((args, kwargs))
+
+    await ArqQueue(Pool()).enqueue(uuid4())  # type: ignore[arg-type]
+    assert calls[0][1]["_queue_name"] == QUEUE_NAME

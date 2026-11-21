@@ -63,5 +63,7 @@ class WorkerSettings:
         )
     ]  # type: ignore[assignment]
     on_startup = startup
+    # Own queue, not arq's shared default: the media worker is on the same Redis.
+    queue_name = "logistics:jobs"
     redis_settings = RedisSettings.from_dsn(get_logistics_settings().redis_url)
     keep_result = 600

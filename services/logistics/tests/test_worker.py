@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from logistics_service.worker import nightly_pool, run_pool_job
+from logistics_service.worker import WorkerSettings, nightly_pool, run_pool_job
 
 
 @pytest.mark.asyncio
@@ -48,3 +48,9 @@ async def test_nightly_pool_triggers_for_today() -> None:
         count = await nightly_pool(ctx)
         assert count == 3
         mock_job.assert_awaited_once_with(ctx, today.isoformat())
+
+
+def test_worker_does_not_use_the_shared_default_queue() -> None:
+    """The media worker runs on the same Redis. On arq's default queue each worker took the other's
+    jobs, found no such function and dropped them."""
+    assert WorkerSettings.queue_name not in (None, "arq:queue")

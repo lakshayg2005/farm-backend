@@ -10,6 +10,9 @@ from fastapi import Request
 logger = logging.getLogger(__name__)
 
 PROCESS_MEDIA = "process_media"
+# Own queue: arq's default queue is shared by every worker on this Redis, and another service's worker
+# (logistics) would take media jobs it cannot run and drop them.
+QUEUE_NAME = "media:jobs"
 
 
 def job_id(media_id: UUID | str) -> str:
@@ -31,7 +34,9 @@ class ArqQueue:
 
     async def enqueue(self, media_id: UUID) -> None:
         try:
-            await self.pool.enqueue_job(PROCESS_MEDIA, str(media_id), _job_id=job_id(media_id))
+            await self.pool.enqueue_job(
+                PROCESS_MEDIA, str(media_id), _job_id=job_id(media_id), _queue_name=QUEUE_NAME
+            )
         except Exception:
             # The row stays PROCESSING; the worker's sweeper queues it again later.
             logger.exception("Could not queue media %s; the sweeper will retry", media_id)
