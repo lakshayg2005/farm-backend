@@ -1,5 +1,20 @@
 # seed
 
+Demo data for the platform, built only through the gateway API (so it passes the same validation and
+publishes the same events as real traffic). It has two profiles:
+
+| Profile | Command | What it is for |
+| --- | --- | --- |
+| `demo` (default) | `scripts/reset-demo.sh` | A small, believable story around Durg and Bhilai: named farmers and farms, real openly licensed photos with GPS, plots, reservations at every stage, orders in every status, inspections, pooled routes and deliveries. See [docs/DEMO.md](../docs/DEMO.md) for the logins and the tour. |
+| `volume` | `python -m farm_seed --profile volume ...` | Generated people and orders in bulk, for load and geo-search tests. Not meant to be shown. |
+
+The demo profile needs an **empty** database (it refuses to run if the demo farmer already exists):
+`scripts/reset-demo.sh` wipes the docker compose volumes, starts the stack, creates the admin and seeds.
+Photos live in `seed/assets/photos` with their authors and licences in `seed/assets/CREDITS.md`;
+`seed/tools/fetch_photos.py` re-downloads them from Wikimedia Commons.
+
+The rest of this file describes the `volume` profile.
+
 Dummy data simulator. Uses a fixed random seed and calls the gateway API with an admin token, so
 seeded data passes the same validation and publishes the same events as real traffic. Running it
 twice is safe: existing accounts and farms are reused.

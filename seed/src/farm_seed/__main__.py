@@ -3,6 +3,7 @@ import os
 
 from farm_seed.client import Gateway
 from farm_seed.data import build_dataset, build_v2_plan
+from farm_seed.demo import run_demo
 from farm_seed.ops import seed_operations
 from farm_seed.v1 import as_dict, seed_v1
 from farm_seed.v2 import seed_v2
@@ -10,11 +11,17 @@ from farm_seed.v2 import seed_v2
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="farm_seed", description="Fill the platform with dummy V1 data"
+        prog="farm_seed", description="Fill the platform with demo data"
     )
     parser.add_argument("--base-url", default=os.getenv("SEED_BASE_URL", "http://localhost/api/v1"))
     parser.add_argument("--admin-phone", default=os.getenv("SEED_ADMIN_PHONE"))
     parser.add_argument("--admin-password", default=os.getenv("SEED_ADMIN_PASSWORD"))
+    parser.add_argument(
+        "--profile",
+        choices=("demo", "volume"),
+        default="demo",
+        help="demo: the small curated story (default). volume: generated data for load and geo tests",
+    )
     parser.add_argument("--farmers", type=int, default=20)
     parser.add_argument("--customers", type=int, default=40)
     parser.add_argument(
@@ -34,6 +41,9 @@ def main() -> None:
             "give --admin-phone and --admin-password (or SEED_ADMIN_PHONE / SEED_ADMIN_PASSWORD)"
         )
     gateway = Gateway(args.base_url)
+    if args.profile == "demo":
+        print("Seeded demo:", run_demo(gateway, args.admin_phone, args.admin_password))
+        return
     data = build_dataset(args.farmers, args.customers)
     summary = seed_v1(gateway, data, args.admin_phone, args.admin_password)
     print("Seeded V1:", as_dict(summary))

@@ -808,10 +808,14 @@ version = "0.1.0"
 source = { editable = "seed" }
 dependencies = [
     { name = "httpx" },
+    { name = "pillow" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "httpx", specifier = ">=0.27" }]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pillow", specifier = ">=11.0" },
+]
 
 [[package]]
 name = "fastapi"

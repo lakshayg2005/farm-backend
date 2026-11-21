@@ -3,7 +3,7 @@ name = "farm-seed"
 version = "0.1.0"
 description = "Dummy data simulator: fills the platform through the gateway API"
 requires-python = ">=3.12"
-dependencies = ["httpx>=0.27"]
+dependencies = ["httpx>=0.27", "pillow>=11.0"]
 
 [build-system]
 requires = ["hatchling"]
