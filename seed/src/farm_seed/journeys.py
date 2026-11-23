@@ -4,11 +4,15 @@ change is asserted, so a broken hand-off between two services fails here instead
     V1  verified farmer -> listing -> order -> pack -> pooling -> delivery code -> COMPLETED -> rating
     V2  plot -> reservation -> deposit -> crop update -> harvest -> delivery (pooled) or buy-back
 
-Each run creates its own people (phones carry a run id), so it can run against an empty stack in CI or
-against the demo data. Pooling assigns a route to the least loaded delivery partner, so on a stack that
-already has idle partners the route may go to one of them; the journey then says so and stops.
+Each run creates its own people (phones carry a run id, names start with "Journey"), so it can run
+against an empty stack in CI or against the demo data. The delivery partner pings its location at the
+pickup first, and in offer dispatch (the default) accepts the route it is offered. On a shared stack,
+run the journeys far from real partners (--near), so a real partner is never offered a test route:
+with someone online within the offer radius, only they are offered it. User ids of everyone created
+are written to --users-file, for loadtest/cleanup.py.
 
-    uv run --package farm-seed python -m farm_seed.journeys --admin-phone ... --admin-password ...
+    uv run --package farm-seed python -m farm_seed.journeys --admin-phone ... --admin-password ... \
+        [--near 22.08,82.15] [--users-file journey-users.txt]
 """
 
 import argparse
@@ -60,8 +64,17 @@ def wait_for(check: Callable[[], object], what: str, timeout: float = 90, interv
 class Run:
     """One journey run: the gateway, the admin, and people made fresh for this run."""
 
-    def __init__(self, gw: Gateway, admin_phone: str, admin_password: str):
+    def __init__(
+        self,
+        gw: Gateway,
+        admin_phone: str,
+        admin_password: str,
+        near: tuple[float, float] | None = None,
+        users_file: str | None = None,
+    ):
         self.gw = gw
+        self.near = near
+        self.users_file = users_file
         self.admin = gw.login(admin_phone, admin_password)["accessToken"]
         self.id = f"{int(time.time()) % 10**6:06d}"
         self.rng = random.Random(self.id)
@@ -77,10 +90,19 @@ class Run:
         phone = self.phone(prefix, n)
         tokens = _ensure_user(self.gw, f"Journey {label}", phone, roles, lat, lng)
         user = tokens["user"]
+        if self.users_file:
+            with open(self.users_file, "a") as f:
+                f.write(user["id"] + "\n")
         if "farmer" in roles:
             self.gw.call("POST", f"/identity/users/{user['id']}/verify-farmer", token=self.admin)
             tokens = self.gw.login(phone, PASSWORD)  # a new token says the farmer is verified
         return {"id": user["id"], "token": tokens["accessToken"], "phone": phone}
+
+    def area(self, lat: float, lng: float) -> tuple[float, float]:
+        """The journey's own default area, or around --near when given."""
+        if self.near is None:
+            return lat, lng
+        return self.near[0] + (lat % 0.01), self.near[1] + (lng % 0.01)
 
     def get(self, path: str, token: str) -> dict | list:
         return self.gw.call("GET", path, token=token).json()
@@ -104,7 +126,18 @@ class Run:
     def deliver(self, order_id: str, customer: dict, partner: dict, others: dict) -> None:
         """Pool today's orders, then the partner collects and delivers this one with the code the
         customer reads out. Checks that only the customer sees the code."""
-        gw, due, stops = self.gw, today().isoformat(), []
+        gw, due = self.gw, today().isoformat()
+        stops: list[dict] = []
+        pools: list[dict] = []
+        order = gw.call("GET", f"/order/orders/{order_id}", token=customer["token"]).json()
+        hub = order["items"][0]["pickupLocation"]["coordinates"]  # [lng, lat]
+        # The partner is on duty at the farm, so the offer goes to them (nearest online partner)
+        gw.call(
+            "POST",
+            "/logistics/location",
+            token=partner["token"],
+            json={"lat": hub[1], "lng": hub[0], "accuracyM": 5},
+        )
 
         def pooled() -> bool:
             gw.call("POST", f"/logistics/pools/run?pool_date={due}", token=self.admin)
@@ -114,14 +147,29 @@ class Run:
                 if any(s["orderId"] == order_id for s in pool["stops"]):
                     expect(
                         pool.get("partnerId") in (None, partner["id"]),
-                        "the route went to another idle delivery partner; run on a stack without "
-                        "other idle partners (empty CI stack)",
+                        "the route went to another delivery partner; run with --near far from "
+                        "real partners",
                     )
                     stops[:] = [s for s in pool["stops"] if s["orderId"] == order_id]
+                    pools[:] = [pool]
                     return True
             return False
 
         wait_for(pooled, "the pooling job to include the order", timeout=60, interval=3)
+        if pools[0].get("partnerId") is None:  # offer dispatch: take the offered route
+            pool_id = pools[0]["id"]
+            offers = wait_for(
+                lambda: [
+                    o
+                    for o in self.get("/logistics/offers/mine", partner["token"])
+                    if (o.get("poolId") or o.get("pool_id")) == pool_id
+                ],
+                "the route offer to reach the partner",
+                timeout=30,
+            )
+            expect(offers, "the partner was not offered the route")
+            gw.call("POST", f"/logistics/offers/{pool_id}/accept", token=partner["token"])
+            step("the route was offered to the nearby partner, who accepted it")
         expect(all(s["otp"] is None for s in stops), "the admin's pool list shows a delivery code")
         wait_for(
             lambda: self.get(f"/order/orders/{order_id}", customer["token"])["status"] == "POOLED",
@@ -173,7 +221,7 @@ class Run:
 def v1(run: Run) -> None:
     """Customer buys produce: order, pack, pool, deliver with a code, complete, rate."""
     gw = run.gw
-    lat, lng = 21.19 + run.rng.random() * 0.01, 81.28 + run.rng.random() * 0.01
+    lat, lng = run.area(21.19 + run.rng.random() * 0.01, 81.28 + run.rng.random() * 0.01)
     waiting = _ensure_user(gw, "Journey Unverified", run.phone(1, 9), ["farmer"], lat, lng)
     refused = gw.call(
         "POST",
@@ -309,7 +357,7 @@ def v1(run: Run) -> None:
 def v2(run: Run) -> None:
     """Customer reserves land, follows the crop and takes the harvest by delivery or buy-back."""
     gw = run.gw
-    lat, lng = 22.1 + run.rng.random() * 0.4, 80.1 + run.rng.random() * 0.4
+    lat, lng = run.area(22.1 + run.rng.random() * 0.4, 80.1 + run.rng.random() * 0.4)
     farmer = run.person("Farmer V2", 1, 2, ["farmer"], lat, lng)
     customer = run.person("Customer V2", 2, 2, ["customer"], lat + 0.01, lng)
     buyer = run.person("Customer V2b", 2, 3, ["customer"], lat + 0.01, lng)
@@ -479,7 +527,12 @@ def main() -> None:
     parser.add_argument("--admin-phone", default=os.getenv("SEED_ADMIN_PHONE"))
     parser.add_argument("--admin-password", default=os.getenv("SEED_ADMIN_PASSWORD"))
     parser.add_argument("--journey", choices=("v1", "v2", "all"), default="all")
+    parser.add_argument(
+        "--near", help="lat,lng to run in, far from real delivery partners (shared stacks)"
+    )
+    parser.add_argument("--users-file", help="append the id of every user created here")
     args = parser.parse_args()
+    near = tuple(float(x) for x in args.near.split(",")) if args.near else None
     if not (args.admin_phone and args.admin_password):
         parser.error(
             "give --admin-phone and --admin-password (or SEED_ADMIN_PHONE / SEED_ADMIN_PASSWORD)"
@@ -490,7 +543,15 @@ def main() -> None:
         print(f"{name.upper()}: {JOURNEYS[name].__doc__}", flush=True)
         started = datetime.now(UTC)
         try:
-            JOURNEYS[name](Run(Gateway(args.base_url), args.admin_phone, args.admin_password))
+            JOURNEYS[name](
+                Run(
+                    Gateway(args.base_url),
+                    args.admin_phone,
+                    args.admin_password,
+                    near,  # type: ignore[arg-type]
+                    args.users_file,
+                )
+            )
         except (AssertionError, Exception) as exc:  # noqa: BLE001 - report every kind of failure
             failed = True
             print(f"FAIL {name.upper()}: {exc}", flush=True)
