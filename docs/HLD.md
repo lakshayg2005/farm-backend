@@ -310,7 +310,7 @@ Each flow is a run of gateway calls followed by events. The same calls are made 
 
 1. Client asks POST /api/v1/media/upload-url with owner type and id; backend returns a short-lived signed URL.
 2. App uploads the camera image straight to object storage, then calls POST /api/v1/media/{id}/complete.
-3. Worker reads EXIF (time, GPS), makes a thumbnail and checks the GPS point lies within 2 km of the plot (ST\_DWithin). Photos without GPS or outside the radius are shown with an "unverified" badge.
+3. Worker reads EXIF (time, GPS), makes a thumbnail and checks the GPS point lies within 2 km of the plot (ST\_DWithin). The result is stored with the photo but not shown to users, since nobody reviews it.
 
 **Crop progress and harvest**
 

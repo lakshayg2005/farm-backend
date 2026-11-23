@@ -43,7 +43,7 @@ Behind the gateway every route below is under `/api/v1/media` (HLD section 15).
 ```
 
 Send the original camera file: the server reads its EXIF. Resizing or "compressing" on the
-phone first usually drops the GPS, and the photo then shows as unverified (`NO_GPS`).
+phone first usually drops the GPS, and the photo is then stored with `NO_GPS`.
 
 ### Data (HLD section 10)
 
