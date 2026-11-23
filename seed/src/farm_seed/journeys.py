@@ -90,13 +90,17 @@ class Run:
         phone = self.phone(prefix, n)
         tokens = _ensure_user(self.gw, f"Journey {label}", phone, roles, lat, lng)
         user = tokens["user"]
-        if self.users_file:
-            with open(self.users_file, "a") as f:
-                f.write(user["id"] + "\n")
+        self.record(user["id"])
         if "farmer" in roles:
             self.gw.call("POST", f"/identity/users/{user['id']}/verify-farmer", token=self.admin)
             tokens = self.gw.login(phone, PASSWORD)  # a new token says the farmer is verified
         return {"id": user["id"], "token": tokens["accessToken"], "phone": phone}
+
+    def record(self, user_id: str) -> None:
+        """Note a user this run created (--users-file), so cleanup can find them."""
+        if self.users_file:
+            with open(self.users_file, "a") as f:
+                f.write(user_id + "\n")
 
     def area(self, lat: float, lng: float) -> tuple[float, float]:
         """The journey's own default area, or around --near when given."""
@@ -223,6 +227,7 @@ def v1(run: Run) -> None:
     gw = run.gw
     lat, lng = run.area(21.19 + run.rng.random() * 0.01, 81.28 + run.rng.random() * 0.01)
     waiting = _ensure_user(gw, "Journey Unverified", run.phone(1, 9), ["farmer"], lat, lng)
+    run.record(waiting["user"]["id"])
     refused = gw.call(
         "POST",
         "/catalog/farms",

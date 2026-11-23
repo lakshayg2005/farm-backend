@@ -71,7 +71,8 @@ const scenarios =
           timeUnit: '1s',
           preAllocatedVUs: 50,
           maxVUs: 400,
-          stages: [
+          // STAGES="1m:4,2m:4" overrides (targets are sign-ins per second)
+          stages: custom ? stages : [
             { duration: '1m', target: 2 },
             { duration: '1m', target: 5 },
             { duration: '1m', target: 10 },
