@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: farm
+    folder: Farm Platform
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: ${FARM_DASHBOARDS}
+      foldersFromFilesStructure: false

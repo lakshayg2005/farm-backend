@@ -1,0 +1,143 @@
+# OpenTelemetry Collector: the one place services send telemetry to.
+#   traces  (OTLP from services and the gateway)  -> Tempo
+#   metrics (OTLP from services)                  -> Prometheus scrapes :8889
+#   logs    (JSON log files of every service)     -> Loki (OTLP), with trace ids attached
+# FARM_LOG_GLOB says which files to tail (VM: ~/logs/*.log; Docker: container log files).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: ${env:OTELCOL_LISTEN:-0.0.0.0}:4317
+      http:
+        endpoint: ${env:OTELCOL_LISTEN:-0.0.0.0}:4318
+
+  filelog:
+    include: ["${env:FARM_LOG_GLOB}"]
+    exclude: ["${env:FARM_LOG_EXCLUDE:-/nonexistent}"]
+    start_at: end
+    include_file_name: true
+    include_file_path: true
+    operators:
+      # Docker json-file lines wrap the app's line: {"log": "...", "stream": ..., "time": ...}
+      - type: router
+        routes:
+          - output: docker
+            expr: 'body matches "^\\{\"log\":"'
+        default: app
+      - type: container
+        id: docker
+        format: docker
+        add_metadata_from_filepath: false
+        output: app
+      # The app's own JSON line (farm_common.log.JsonFormatter); other lines pass through as text
+      - type: json_parser
+        id: app
+        if: 'body matches "^\\s*\\{"'
+        parse_from: body
+        parse_to: attributes
+        on_error: send_quiet
+        timestamp:
+          parse_from: attributes.ts
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999-07:00"
+        severity:
+          parse_from: attributes.level
+      - type: trace_parser
+        if: 'attributes.traceId != nil'
+        trace_id:
+          parse_from: attributes.traceId
+        span_id:
+          parse_from: attributes.spanId
+        on_error: send_quiet
+      - type: move
+        if: 'attributes.service != nil'
+        from: attributes.service
+        to: resource["service.name"]
+      - type: move
+        if: 'attributes.message != nil'
+        from: attributes.message
+        to: body
+      - type: remove
+        if: 'attributes.ts != nil'
+        field: attributes.ts
+      - type: remove
+        if: 'attributes.traceId != nil'
+        field: attributes.traceId
+      - type: remove
+        if: 'attributes.spanId != nil'
+        field: attributes.spanId
+      # Lines that are not JSON (migrations, crashes before logging starts): name the service
+      # after the log file, e.g. identity.log -> identity
+      - type: regex_parser
+        if: 'resource["service.name"] == nil'
+        regex: '^(?P<svc>[a-z][a-z-]*?)(-migrate)?\.log$'
+        parse_from: attributes["log.file.name"]
+        on_error: send_quiet
+      - type: move
+        if: 'attributes.svc != nil'
+        from: attributes.svc
+        to: resource["service.name"]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+  batch:
+    send_batch_size: 2048
+    timeout: 2s
+  resource:
+    attributes:
+      - key: service.namespace
+        value: farm
+        action: upsert
+      - key: deployment.environment.name
+        value: ${env:FARM_ENVIRONMENT:-local}
+        action: insert
+  # Prometheus gets every resource attribute as a label; keep only the useful ones
+  resource/metrics:
+    attributes:
+      - pattern: ^(telemetry\.|process\.|host\.|os\.)
+        action: delete
+
+exporters:
+  otlp_grpc/tempo:
+    endpoint: ${env:TEMPO_OTLP:-tempo:4317}
+    tls:
+      insecure: true
+  otlp_http/loki:
+    endpoint: ${env:LOKI_OTLP:-http://loki:3100/otlp}
+  prometheus:
+    endpoint: ${env:OTELCOL_LISTEN:-0.0.0.0}:8889
+    namespace: ""
+    enable_open_metrics: true  # exemplars: jump from a latency bucket to a trace
+    resource_to_telemetry_conversion:
+      enabled: true
+
+extensions:
+  health_check:
+    endpoint: ${env:OTELCOL_LISTEN:-0.0.0.0}:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: ${env:OTELCOL_LISTEN:-0.0.0.0}
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp_grpc/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, resource/metrics, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [filelog, otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp_http/loki]
