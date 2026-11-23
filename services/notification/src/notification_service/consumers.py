@@ -387,7 +387,7 @@ def make_event_handler(
         # Push right away, outside the DB transaction. A push failure never loses the inbox row.
         if settings.push_enabled:
             dead: list[str] = []
-            for tokens, notif_type, title, body, payload in pushes:
+            for tokens, type_name, title, body, payload in pushes:
                 if not tokens:
                     continue
                 try:
@@ -399,7 +399,7 @@ def make_event_handler(
                         expo_push_url=settings.expo_push_url,
                         access_token=settings.expo_access_token,
                         fcm=fcm,
-                        notification_type=notif_type,
+                        notification_type=type_name,
                         invalid_tokens=dead,
                     )
                 except Exception:
