@@ -80,7 +80,7 @@ class Board:
                 "refresh": 2,
                 "includeAll": True,
                 "multi": multi,
-                "allValue": ".*",
+                "allValue": ".+",
                 "current": {"text": "All", "value": "$__all"},
                 "sort": 1,
             }
@@ -160,6 +160,7 @@ def timeseries(
             "axisSoftMin": 0 if min0 else None,
         },
         "color": {"mode": "palette-classic"},
+        "noValue": "0",
     }
     if max_ is not None:
         defaults["max"] = max_
@@ -315,7 +316,7 @@ def overview() -> dict:
         4,
     )
     b.add(
-        stat("p50 latency", q(0.5, "", bucket), "s", GREEN_AMBER_RED(0.1, 0.3), decimals=3), 4, 4
+        stat("p50 latency", q(0.5, "", bucket), "s", GREEN_AMBER_RED(0.1, 0.3)), 4, 4
     )
     b.add(
         stat(
@@ -324,13 +325,12 @@ def overview() -> dict:
             "s",
             GREEN_AMBER_RED(0.3, 0.8),
             "95% of requests finish faster than this. Goal: under 500 ms.",
-            decimals=3,
         ),
         4,
         4,
     )
     b.add(
-        stat("p99 latency", q(0.99, "", bucket), "s", GREEN_AMBER_RED(0.5, 1.5), decimals=3), 4, 4
+        stat("p99 latency", q(0.99, "", bucket), "s", GREEN_AMBER_RED(0.5, 1.5)), 4, 4
     )
 
     b.row("Traffic")
@@ -590,10 +590,9 @@ def capacity() -> dict:
     b.add(
         stat(
             "p95 (k6)",
-            f"max(k6_http_req_duration_p95{{{k6}}}) / 1000",
+            f"max(k6_http_req_duration_p95{{{k6}}})",
             "s",
             GREEN_AMBER_RED(0.3, 0.5),
-            decimals=3,
         ),
         4,
         4,
@@ -643,9 +642,9 @@ def capacity() -> dict:
         timeseries(
             "Users vs latency (k6)",
             [
-                target(f"max(k6_http_req_duration_p95{{{k6}}}) / 1000", "p95", ref="A"),
-                target(f"max(k6_http_req_duration_p99{{{k6}}}) / 1000", "p99", ref="B"),
-                target(f"max(k6_http_req_duration_p50{{{k6}}}) / 1000", "p50", ref="C"),
+                target(f"max(k6_http_req_duration_p95{{{k6}}})", "p95", ref="A"),
+                target(f"max(k6_http_req_duration_p99{{{k6}}})", "p99", ref="B"),
+                target(f"max(k6_http_req_duration_p50{{{k6}}})", "p50", ref="C"),
                 target(f"sum(k6_vus{{{k6}}})", "virtual users", ref="D"),
             ],
             "s",
@@ -659,7 +658,7 @@ def capacity() -> dict:
     b.add(
         timeseries(
             "p95 by request (k6)",
-            [target(f"max by (name) (k6_http_req_duration_p95{{{k6}}}) / 1000", "{{name}}")],
+            [target(f"max by (name) (k6_http_req_duration_p95{{{k6}}})", "{{name}}")],
             "s",
             fill=0,
             description="Grouped by the request name the test gives each call.",

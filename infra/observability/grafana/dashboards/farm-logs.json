@@ -35,7 +35,7 @@
         "refresh": 2,
         "includeAll": true,
         "multi": true,
-        "allValue": ".*",
+        "allValue": ".+",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -148,7 +148,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": [
           {
@@ -243,7 +244,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },

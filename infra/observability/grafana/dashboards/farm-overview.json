@@ -34,7 +34,7 @@
         "refresh": 2,
         "includeAll": true,
         "multi": true,
-        "allValue": ".*",
+        "allValue": ".+",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -57,7 +57,7 @@
         "refresh": 2,
         "includeAll": true,
         "multi": true,
-        "allValue": ".*",
+        "allValue": ".+",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -333,8 +333,7 @@
                 "value": 0.3
               }
             ]
-          },
-          "decimals": 3
+          }
         },
         "overrides": []
       },
@@ -401,8 +400,7 @@
                 "value": 0.8
               }
             ]
-          },
-          "decimals": 3
+          }
         },
         "overrides": []
       },
@@ -469,8 +467,7 @@
                 "value": 1.5
               }
             ]
-          },
-          "decimals": 3
+          }
         },
         "overrides": []
       },
@@ -545,7 +542,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -608,7 +606,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": [
           {
@@ -719,6 +718,7 @@
           "color": {
             "mode": "palette-classic"
           },
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -821,7 +821,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -935,7 +936,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -1257,7 +1259,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -1320,7 +1323,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },

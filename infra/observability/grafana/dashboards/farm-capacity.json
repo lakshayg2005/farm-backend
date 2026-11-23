@@ -34,7 +34,7 @@
         "refresh": 2,
         "includeAll": true,
         "multi": false,
-        "allValue": ".*",
+        "allValue": ".+",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -220,7 +220,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(k6_http_req_duration_p95{testid=~\"$testid\"}) / 1000",
+          "expr": "max(k6_http_req_duration_p95{testid=~\"$testid\"})",
           "legendFormat": "__auto",
           "refId": "A",
           "instant": false
@@ -248,8 +248,7 @@
                 "value": 0.5
               }
             ]
-          },
-          "decimals": 3
+          }
         },
         "overrides": []
       },
@@ -516,7 +515,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": [
           {
@@ -587,7 +587,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(k6_http_req_duration_p95{testid=~\"$testid\"}) / 1000",
+          "expr": "max(k6_http_req_duration_p95{testid=~\"$testid\"})",
           "legendFormat": "p95",
           "refId": "A"
         },
@@ -596,7 +596,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(k6_http_req_duration_p99{testid=~\"$testid\"}) / 1000",
+          "expr": "max(k6_http_req_duration_p99{testid=~\"$testid\"})",
           "legendFormat": "p99",
           "refId": "B"
         },
@@ -605,7 +605,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(k6_http_req_duration_p50{testid=~\"$testid\"}) / 1000",
+          "expr": "max(k6_http_req_duration_p50{testid=~\"$testid\"})",
           "legendFormat": "p50",
           "refId": "C"
         },
@@ -641,6 +641,7 @@
           "color": {
             "mode": "palette-classic"
           },
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -724,7 +725,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (name) (k6_http_req_duration_p95{testid=~\"$testid\"}) / 1000",
+          "expr": "max by (name) (k6_http_req_duration_p95{testid=~\"$testid\"})",
           "legendFormat": "{{name}}",
           "refId": "A"
         }
@@ -747,7 +748,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -810,7 +812,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -886,7 +889,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -953,6 +957,7 @@
           "color": {
             "mode": "palette-classic"
           },
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1041,6 +1046,7 @@
           "color": {
             "mode": "palette-classic"
           },
+          "noValue": "0",
           "max": 1,
           "thresholds": {
             "mode": "absolute",
@@ -1117,7 +1123,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -1189,7 +1196,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "0"
         },
         "overrides": [
           {
