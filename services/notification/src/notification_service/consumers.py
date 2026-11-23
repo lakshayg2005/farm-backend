@@ -81,7 +81,12 @@ def map_event_to_notification(
             UUID(str(cid)),
             NotificationType.ORDER_PACKED,
             "Order Packed",
-            f"Your order #{short_id} is packed and waiting for a delivery partner.",
+            (
+                f"Your order #{short_id} is packed. You chose shared delivery, so it leaves "
+                "with the next batch, together with other orders near you."
+                if p.get("deliveryMode") == "FLEXIBLE"
+                else f"Your order #{short_id} is packed and waiting for a delivery partner."
+            ),
             {"orderId": oid},
         )
 

@@ -41,3 +41,31 @@ async def test_delivery_users_become_partners_and_leave_when_the_role_goes(
     await handle(changed)
     async with session_factory() as session:
         assert await session.get(DeliveryPartner, uid) is None
+
+
+def _packed(mode: str | None):
+    payload = {"orderId": str(uuid4()), "deliveryDate": "2999-01-01"}
+    if mode:
+        payload["deliveryMode"] = mode
+    return Event(type="order.ready_for_dispatch", producer="order", payload=payload)
+
+
+class _Trigger:
+    def __init__(self) -> None:
+        self.days: list = []
+
+    def request(self, day) -> None:
+        self.days.append(day)
+
+
+@pytest.mark.asyncio
+async def test_a_packed_immediate_order_triggers_pooling_but_a_flexible_one_waits(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    trigger = _Trigger()
+    handle = make_handler(session_factory, trigger)  # type: ignore[arg-type]
+    await handle(_packed("FLEXIBLE"))
+    assert trigger.days == []  # held for the daily shared-delivery batch
+    await handle(_packed("IMMEDIATE"))
+    await handle(_packed(None))  # an event from before delivery modes existed
+    assert len(trigger.days) == 2

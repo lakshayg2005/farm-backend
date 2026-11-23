@@ -11,13 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from farm_common.auth import CurrentUser, Role, require_roles
 from farm_common.errors import Unauthorized
-from order_service import harvest, service
+from order_service import delivery, harvest, service
 from order_service.deps import get_payment_gateway, get_session, get_stock_client
 from order_service.payments import PaymentGateway
 from order_service.schemas import (
     CancelRequest,
     Checkout,
     CheckoutRequest,
+    DeliveryOptions,
     ErrorResponse,
     HarvestOrderChoice,
     OrderDetail,
@@ -149,6 +150,23 @@ async def choose_harvest_option(
     gateway: PaymentGateway = Depends(get_payment_gateway),
 ) -> OrderDetail:
     return await harvest.choose_option(session, user, body, settings, gateway)
+
+
+@router.get(
+    "/orders/delivery-options",
+    response_model=DeliveryOptions,
+    summary="The delivery choices at checkout: immediate or shared (flexible)",
+    description=(
+        "Fee per order and the time of the daily shared-delivery batch. Send the chosen `mode` as "
+        "`deliveryMode` in POST /orders. Clients show this instead of hard-coding the fees."
+    ),
+    responses=_AUTH_ERRORS,
+)
+async def delivery_options(
+    _user: CurrentUser = Depends(_any_party),
+    settings: OrderSettings = Depends(get_order_settings),
+) -> DeliveryOptions:
+    return delivery.options(settings)
 
 
 @router.post(

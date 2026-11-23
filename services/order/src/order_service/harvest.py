@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from farm_common.auth import CurrentUser
 from farm_common.errors import AppError, Conflict, NotFound
+from order_service import delivery
 from order_service import events as ev
 from order_service.db import (
     CheckoutRow,
@@ -44,6 +45,7 @@ from order_service.db import (
 )
 from order_service.payments import PaymentGateway, publish_payment_succeeded, refund_deposit
 from order_service.schemas import (
+    DeliveryMode,
     HarvestOption,
     HarvestOrderChoice,
     OrderDetail,
@@ -65,6 +67,7 @@ from order_service.service import (
     _transition,
     _uid,
     _uuid,
+    ready_note,
 )
 from order_service.settings import OrderSettings
 
@@ -210,6 +213,7 @@ async def _create_harvest_order(
         currency="INR",
         delivery_address=None,
         delivery_date=None,
+        delivery_mode=DeliveryMode.IMMEDIATE.value,
         created_at=now,
         updated_at=now,
     )
@@ -380,7 +384,8 @@ async def choose_option(
         assert body.delivery_address is not None  # checked by the request model
         order.delivery_address = body.delivery_address.model_dump(mode="json", by_alias=True)
         order.delivery_date = _delivery_date(body.delivery_date)
-        order.delivery_fee = _money(settings.delivery_fee_per_order)
+        order.delivery_mode = body.delivery_mode.value
+        order.delivery_fee = _money(delivery.fee_for(body.delivery_mode, settings))
         order.total = order.subtotal + order.delivery_fee
         await session.execute(
             update(CheckoutRow)
@@ -395,7 +400,7 @@ async def choose_option(
             order,
             S.READY_FOR_DISPATCH,
             ev.ORDER_READY_FOR_DISPATCH,
-            note="Ready for pickup",
+            note=ready_note(order),
         )
     else:
         # The customer owns the whole harvest, so the balance is due first; then the farmer sells

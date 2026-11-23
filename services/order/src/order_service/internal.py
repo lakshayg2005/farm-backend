@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from order_service.db import OrderRow
 from order_service.deps import get_session
-from order_service.schemas import OrderStatus
+from order_service.schemas import DeliveryMode, OrderStatus
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -47,25 +47,35 @@ def _weight_kg(quantity: Decimal, unit: str | None) -> Decimal:
 )
 async def ready_for_dispatch(
     pool_date: date = Query(alias="date", description="Pool orders due on or before this day"),
+    mode: DeliveryMode | None = Query(
+        default=None,
+        description="Only IMMEDIATE or only FLEXIBLE orders; both when omitted",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     """Orders in READY_FOR_DISPATCH whose delivery date is `date` or earlier.
 
+    Logistics pools IMMEDIATE orders right after packing and FLEXIBLE ones in the daily batch, so
+    it asks for one mode at a time (`mode`); the admin "run now" button asks for both.
+
     The shape is what the logistics pooling job reads (snake_case keys, not the public camelCase):
-    `order_id`, `customer_id`, `hub_lat`/`hub_lng` (where the farm hands the produce over),
+    `order_id`, `delivery_mode`, `customer_id`, `hub_lat`/`hub_lng` (where the farm hands the produce over),
     `drop_lat`/`drop_lng` (the customer's address), `weight_kg`, `address` and `contact_phone`
     (so the partner can call the customer). Once logistics publishes `pool.assigned` the order
     moves to POOLED and no longer shows up here.
     """
+    conditions = [
+        OrderRow.status == OrderStatus.READY_FOR_DISPATCH.value,
+        OrderRow.delivery_date <= pool_date,
+        OrderRow.delivery_address.is_not(None),
+    ]
+    if mode is not None:
+        conditions.append(OrderRow.delivery_mode == mode.value)
     rows = (
         (
             await session.execute(
                 select(OrderRow)
-                .where(
-                    OrderRow.status == OrderStatus.READY_FOR_DISPATCH.value,
-                    OrderRow.delivery_date <= pool_date,
-                    OrderRow.delivery_address.is_not(None),
-                )
+                .where(*conditions)
                 .options(selectinload(OrderRow.items))
                 .order_by(OrderRow.created_at, OrderRow.id)
             )
@@ -82,6 +92,8 @@ async def ready_for_dispatch(
         result.append(
             {
                 "order_id": str(row.id),
+                "delivery_mode": row.delivery_mode,
+                "delivery_date": row.delivery_date.isoformat() if row.delivery_date else None,
                 "hub_lat": hub_lat,
                 "hub_lng": hub_lng,
                 "drop_lat": drop_lat,

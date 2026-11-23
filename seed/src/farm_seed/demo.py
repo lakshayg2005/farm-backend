@@ -30,6 +30,8 @@ def today() -> date:
 #   CONFIRMED   left for the farmer to pack          CANCELLED     the customer cancels
 #   WAITING     packed, due tomorrow: waits for tomorrow's route
 #   DISPATCH    packed today, then pooled into today's routes
+#   SHARED      placed as FLEXIBLE ("I can wait"), packed today and left in the shared-delivery
+#               batch: the admin's Pooling page shows them waiting and "Run batch now" routes them
 ORDERS = (
     (0, ((0, "tomato", 4), (1, "cauliflower", 2)), "DISPATCH"),
     (1, ((0, "tomato", 3), (0, "brinjal", 2)), "DISPATCH"),
@@ -46,6 +48,9 @@ ORDERS = (
     (9, ((1, "carrot", 3), (1, "peas", 2)), "DISPATCH"),
     (3, ((2, "potato", 6),), "DISPATCH"),
     (2, ((4, "chana", 1),), "DISPATCH"),
+    (2, ((0, "tomato", 2), (0, "brinjal", 1)), "SHARED"),
+    (3, ((2, "onion", 3),), "SHARED"),
+    (6, ((1, "peas", 2),), "SHARED"),
     (5, ((0, "tomato", 5),), "WAITING"),
     (6, ((5, "okra", 3),), "WAITING"),
     (7, ((2, "onion", 4),), "WAITING"),
@@ -407,6 +412,7 @@ class Demo:
                     "deliveryDate": (
                         today() + timedelta(days=1 if fate == "WAITING" else 0)
                     ).isoformat(),
+                    "deliveryMode": "FLEXIBLE" if fate == "SHARED" else "IMMEDIATE",
                     "paymentIntentId": intent["id"],
                 },
             ).json()
@@ -463,7 +469,10 @@ class Demo:
         def run_pooling() -> bool:
             nonlocal pools
             pools = gw.call(
-                "POST", f"/logistics/pools/run?pool_date={due}", token=self.admin
+                # IMMEDIATE only: the SHARED orders wait for the batch, which the demo runs by hand
+                "POST",
+                f"/logistics/pools/run?pool_date={due}&mode=IMMEDIATE",
+                token=self.admin,
             ).json()["pools"]
             return bool(pools)
 

@@ -15,6 +15,10 @@ Lakshay Gupta (Team 2 lead)
 >   catalog and land refuse farms, listings and plots from unverified farmers (403 FARMER\_NOT\_VERIFIED).
 > - **2026-11-23: seasons of one plot never overlap** (database exclusion constraint), so one piece of
 >   land cannot be let twice for the same days. Ended seasons are not offered.
+> - **2026-11-24: delivery modes.** At checkout the customer chooses **IMMEDIATE** (routed as soon as
+>   the farmer packs it) or **FLEXIBLE** ("I can wait": a lower delivery fee, and the order is held for
+>   the daily shared-delivery batch at 10:00 India time, where logistics clusters every waiting order
+>   that is near each other so one partner serves a neighbourhood). See section 14.
 > - **Inspectors and admins (section 2):** the website has no inspector role; admins verify farmers,
 >   resolve orders and run pooling.
 
@@ -368,6 +372,28 @@ Orders due on the same date whose drop points sit within about 3 km of each othe
 4. **Sequence stops:** start at the farm (or a collection hub when several farms feed one pool), then nearest-neighbour ordering refined with 2-opt; use OSRM road distances when available, Haversine otherwise.
 5. **Save and assign:** write delivery\_pools and pool\_stops with ETAs and the route LINESTRING; assign the nearest free delivery partner and notify every customer of their slot.
 6. **Measure:** store total\_km per pool and the km that separate deliveries would have taken, so the admin dashboard shows the saving.
+
+### Delivery modes and the daily batch
+
+The customer chooses how fast they need an order (`deliveryMode` in `POST /orders`, per farm order):
+
+| | IMMEDIATE (default) | FLEXIBLE ("I can wait") |
+| --- | --- | --- |
+| Delivery fee per farm order | 20 (`DELIVERY_FEE_PER_ORDER`) | 10 (`DELIVERY_FEE_FLEXIBLE`) |
+| When it is pooled | seconds after the farmer packs it (orders packed together share a pool) | at the daily batch, 10:00 India time (`BATCH_HOUR_IST`, `BATCH_MINUTE_IST`) |
+| Clustering | drops within 3 km | drops within 5 km **and** farms within 30 km (`BATCH_DBSCAN_EPS_KM`, `BATCH_HUB_EPS_KM`) |
+| Who sees the route offer | partners, at once | partners, at 10:00 |
+
+Why a batch: a lone order waits for nobody, but a batch sees many orders at once, so it can cluster
+wider and fill vehicles, which is where the kilometres (and the cheaper fee) come from. The order
+service puts `deliveryMode` on every `order.*` event; logistics ignores `order.ready_for_dispatch`
+for FLEXIBLE orders and its worker runs the batch cron (`flexible_batch`). A nightly 02:00 run
+remains as a safety net for IMMEDIATE orders only. An order packed after the 10:00 run waits for the
+next day's run; an order due on a later date waits for that date. Inside a batch an oversized
+cluster is cut along its longest axis, so each pool stays compact. The customer sees `batchAt` (an
+estimate) on the order, the admin sees the queue and its routes before the run
+(`GET /logistics/pools/batch`) and can run it by hand (`POST /logistics/pools/run?mode=FLEXIBLE`).
+`GET /orders/delivery-options` gives clients the fees and the batch time, so none is hard-coded.
 
 Pickups from several farms can be pooled the same way (cluster farm locations, then route farms → hub → customers). V1 needs this from the start: one customer order can hold items from several farms, so a pool has PICKUP stops (farms) before DROP stops (customers), and each drop must come after its pickups.
 

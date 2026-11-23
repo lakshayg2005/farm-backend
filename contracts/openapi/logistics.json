@@ -1,6 +1,105 @@
 {
   "components": {
     "schemas": {
+      "BatchOrderOut": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "deliveryDate": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deliverydate"
+          },
+          "orderId": {
+            "format": "uuid",
+            "title": "Orderid",
+            "type": "string"
+          },
+          "route": {
+            "description": "Which of the estimated routes it would ride (1-based)",
+            "title": "Route",
+            "type": "integer"
+          },
+          "weightKg": {
+            "title": "Weightkg",
+            "type": "number"
+          }
+        },
+        "required": [
+          "orderId",
+          "weightKg",
+          "route"
+        ],
+        "title": "BatchOrderOut",
+        "type": "object"
+      },
+      "BatchPreview": {
+        "description": "The shared-delivery batch as it would run now (nothing is created).",
+        "properties": {
+          "batchTime": {
+            "description": "Daily run time, India, HH:MM",
+            "title": "Batchtime",
+            "type": "string"
+          },
+          "dueOrders": {
+            "description": "Of those, how many the next run would take (due by then)",
+            "title": "Dueorders",
+            "type": "integer"
+          },
+          "estimatedRoutes": {
+            "title": "Estimatedroutes",
+            "type": "integer"
+          },
+          "nextRunAt": {
+            "format": "date-time",
+            "title": "Nextrunat",
+            "type": "string"
+          },
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/BatchOrderOut"
+            },
+            "title": "Orders",
+            "type": "array"
+          },
+          "totalWeightKg": {
+            "title": "Totalweightkg",
+            "type": "number"
+          },
+          "waitingOrders": {
+            "description": "FLEXIBLE orders packed and waiting",
+            "title": "Waitingorders",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "batchTime",
+          "nextRunAt",
+          "waitingOrders",
+          "dueOrders",
+          "estimatedRoutes",
+          "totalWeightKg",
+          "orders"
+        ],
+        "title": "BatchPreview",
+        "type": "object"
+      },
       "DeliverIn": {
         "properties": {
           "deliveredAt": {
@@ -1195,9 +1294,36 @@
         ]
       }
     },
+    "/pools/batch": {
+      "get": {
+        "description": "FLEXIBLE orders that are packed and waiting, and how the next run would group them.",
+        "operationId": "batch_preview_pools_batch_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The shared-delivery batch waiting for its next run (preview, creates nothing)",
+        "tags": [
+          "logistics"
+        ]
+      }
+    },
     "/pools/run": {
       "post": {
-        "description": "Fetch READY_FOR_DISPATCH orders, cluster them, persist pools, publish pool.assigned.",
+        "description": "Fetch READY_FOR_DISPATCH orders, cluster them, persist pools, publish pool.assigned.\n\nWith mode=FLEXIBLE this is the daily shared-delivery batch run by hand (\"run the batch now\").",
         "operationId": "run_pools_pools_run_post",
         "parameters": [
           {
@@ -1210,6 +1336,28 @@
               "format": "date",
               "title": "Pool Date",
               "type": "string"
+            }
+          },
+          {
+            "description": "Pool only IMMEDIATE or only FLEXIBLE (the shared-delivery batch) orders; both when omitted",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "IMMEDIATE",
+                    "FLEXIBLE"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Pool only IMMEDIATE or only FLEXIBLE (the shared-delivery batch) orders; both when omitted",
+              "title": "Mode"
             }
           }
         ],

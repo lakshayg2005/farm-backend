@@ -16,6 +16,11 @@ Two stories, told in the order the platform was designed for (HLD section 5).
 3. **Photos.** *Say:* photos keep their GPS and capture time. Show a listing photo.
 4. **Admin (web).** Sign in as +919999999999 (password in DEMO.md). **Dashboard**: orders per day, sales, customer
    rating. **Pooling**: pick today, **Run pooling**; routes appear on the map with kilometres saved against separate trips.
+   **Shared-delivery batch** (top of the page): three orders whose customers chose "I can wait" are packed but held;
+   the panel shows them grouped into the routes the 10:00 run would make. **Run the batch now** creates those routes
+   and offers them to the partners. *Say:* immediate orders are routed within seconds, flexible ones ride together
+   and cost the customer less. (To show the customer side: choose **I can wait** at checkout, then see
+   "Shared delivery" and the batch time on the order.)
    **Orders → Needs a step**: where anything is stuck. *Say:* an admin can cancel and refund from here.
 5. **Delivery partner (app).** Deepak, +919400000001: today's route, pickups, then a drop with a photo and the 4-digit
    delivery code. Only the customer sees the code (in **My orders**); the partner's route never shows it, and a wrong

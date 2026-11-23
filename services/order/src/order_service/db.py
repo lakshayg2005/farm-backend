@@ -131,6 +131,10 @@ class OrderRow(Base):
     # empty for a HARVEST order that is not delivered (not chosen yet, or BUYBACK)
     delivery_address: Mapped[dict[str, Any] | None] = mapped_column(_JSON, nullable=True)
     delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # IMMEDIATE or FLEXIBLE: FLEXIBLE orders wait for the daily shared-delivery batch
+    delivery_mode: Mapped[str] = mapped_column(
+        String(10), default="IMMEDIATE", server_default="IMMEDIATE"
+    )
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

@@ -439,6 +439,8 @@ async def test_dispatch_feed_lists_ready_orders_in_the_shape_logistics_reads(api
     (row,) = response.json()
     assert row == {
         "order_id": order["id"],
+        "delivery_mode": "IMMEDIATE",
+        "delivery_date": order["deliveryDate"],
         "hub_lat": 26.85,
         "hub_lng": 75.8,
         "drop_lat": 26.9124,
