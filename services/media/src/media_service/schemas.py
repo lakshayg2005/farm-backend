@@ -86,7 +86,9 @@ class MediaOut(ApiModel):
     width: int | None
     height: int | None
     exif_time: datetime | None = Field(description="Capture time from EXIF, if present (UTC)")
-    is_geo_verified: bool = Field(description="Whether the photo's GPS lies near the farm or plot. Informational; clients do not show it")
+    is_geo_verified: bool = Field(
+        description="Whether the photo's GPS lies near the farm or plot. Informational; clients do not show it"
+    )
     geo_status: GeoStatus = Field(description="Why it is (not) verified")
     distance_m: float | None = Field(description="Metres from the farm / plot (0 = inside it)")
     reject_reason: str | None
