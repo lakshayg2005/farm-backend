@@ -81,6 +81,15 @@
       "title": "DeliveryAddress",
       "type": "object"
     },
+    "DeliveryMode": {
+      "description": "How fast the customer wants the delivery.\n\nIMMEDIATE: the order is put on a route as soon as the farmer packs it (partners are offered it\nwithin seconds), at the normal delivery fee.\nFLEXIBLE: the customer accepts a later arrival. Packed orders wait, and once a day (10:00\nIndia time by default) logistics clusters every waiting FLEXIBLE order that is near each other\ninto shared routes, so one delivery partner serves a whole neighbourhood. Cheaper delivery fee.",
+      "enum": [
+        "IMMEDIATE",
+        "FLEXIBLE"
+      ],
+      "title": "DeliveryMode",
+      "type": "string"
+    },
     "EventItem": {
       "properties": {
         "listingId": {
@@ -320,6 +329,10 @@
       ],
       "default": null,
       "title": "Deliverydate"
+    },
+    "deliveryMode": {
+      "$ref": "#/$defs/DeliveryMode",
+      "default": "IMMEDIATE"
     }
   },
   "required": [

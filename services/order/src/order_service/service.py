@@ -36,6 +36,7 @@ from farm_common.auth import CurrentUser, Role
 from farm_common.errors import AppError, Conflict, Forbidden, NotFound, Unauthorized, error_body
 from farm_common.events import Event
 from farm_common.outbox import add_event
+from order_service import delivery
 from order_service import events as ev
 from order_service.db import (
     CheckoutRow,
@@ -52,6 +53,7 @@ from order_service.schemas import (
     Checkout,
     CheckoutRequest,
     DeliveryAddress,
+    DeliveryMode,
     GeoPoint,
     Order,
     OrderDetail,
@@ -70,7 +72,7 @@ from order_service.schemas import (
     Payout,
     PayoutList,
 )
-from order_service.settings import OrderSettings
+from order_service.settings import OrderSettings, get_order_settings
 from order_service.stock import ReservedLine, StockClient, StockRequestItem
 
 logger = logging.getLogger(__name__)
@@ -118,6 +120,16 @@ def _delivery_date(requested: date | None) -> date:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def ready_note(order: OrderRow) -> str:
+    """Timeline text when an order becomes READY_FOR_DISPATCH."""
+    if order.delivery_mode == DeliveryMode.FLEXIBLE:
+        clock = (
+            f"{get_order_settings().batch_hour_ist:02d}:{get_order_settings().batch_minute_ist:02d}"
+        )
+        return f"Ready for pickup; waiting for the shared-delivery batch (daily at {clock})"
+    return "Ready for pickup"
 
 
 def _money(value: Decimal) -> Decimal:
@@ -183,9 +195,19 @@ def _order_schema(row: OrderRow) -> Order:
             DeliveryAddress.model_validate(row.delivery_address) if row.delivery_address else None
         ),
         delivery_date=row.delivery_date,
+        delivery_mode=DeliveryMode(row.delivery_mode),
+        batch_at=_batch_at(row),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+def _batch_at(row: OrderRow) -> datetime | None:
+    """When the shared-delivery batch should take a FLEXIBLE order that is not on a route yet."""
+    waiting = {S.PLACED, S.CONFIRMED, S.PACKED, S.READY_FOR_DISPATCH}
+    if row.delivery_mode != DeliveryMode.FLEXIBLE or OrderStatus(row.status) not in waiting:
+        return None
+    return delivery.next_batch_at(get_order_settings(), row.delivery_date)
 
 
 def _balance_due(row: OrderRow, payments: list[PaymentRow]) -> float:
@@ -426,7 +448,11 @@ async def pack_order(session: AsyncSession, user: CurrentUser, order_id: UUID) -
     # No quality gate: a packed order is ready for the delivery partner straight away.
     await _transition(session, order, S.PACKED, ev.ORDER_PACKED, note="Packed by the farmer")
     await _transition(
-        session, order, S.READY_FOR_DISPATCH, ev.ORDER_READY_FOR_DISPATCH, note="Ready for pickup"
+        session,
+        order,
+        S.READY_FOR_DISPATCH,
+        ev.ORDER_READY_FOR_DISPATCH,
+        note=ready_note(order),
     )
     await session.commit()
     return await _detail(session, order_id, refresh=True)
@@ -575,6 +601,8 @@ async def list_orders(
                 farm_id=r.farm_id,
                 reservation_id=r.reservation_id,
                 harvest_option=r.harvest_option,  # type: ignore[arg-type]
+                delivery_mode=DeliveryMode(r.delivery_mode),
+                batch_at=_batch_at(r),
                 status=OrderStatus(r.status),
                 item_count=len(r.items),
                 total=float(r.total),
@@ -797,7 +825,7 @@ async def _save_checkout(
     gateway: PaymentGateway,
     settings: OrderSettings,
 ) -> tuple[int, dict[str, Any]]:
-    fee = _money(settings.delivery_fee_per_order)
+    fee = _money(delivery.fee_for(body.delivery_mode, settings))
     subtotals = {
         farm_id: _money(sum((_money(line.unit_price * line.qty) for line in lines), Decimal(0)))
         for farm_id, lines in reserved.items()
@@ -838,6 +866,7 @@ async def _save_checkout(
             currency="INR",
             delivery_address=address,
             delivery_date=delivery_date,
+            delivery_mode=body.delivery_mode.value,
             notes=body.notes,
             created_at=now,
             updated_at=now,

@@ -100,6 +100,26 @@ class PoolRunResponse(ApiModel):
     pools: list[PoolOut]
 
 
+class BatchOrderOut(ApiModel):
+    order_id: UUID
+    address: str | None = None
+    weight_kg: float
+    delivery_date: date | None = None
+    route: int = Field(description="Which of the estimated routes it would ride (1-based)")
+
+
+class BatchPreview(ApiModel):
+    """The shared-delivery batch as it would run now (nothing is created)."""
+
+    batch_time: str = Field(description="Daily run time, India, HH:MM")
+    next_run_at: datetime
+    waiting_orders: int = Field(description="FLEXIBLE orders packed and waiting")
+    due_orders: int = Field(description="Of those, how many the next run would take (due by then)")
+    estimated_routes: int
+    total_weight_kg: float
+    orders: list[BatchOrderOut]
+
+
 # ---------------------------------------------------------------------------
 # Stop action requests
 # ---------------------------------------------------------------------------

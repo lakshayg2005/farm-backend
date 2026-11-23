@@ -169,8 +169,8 @@ async def test_two_riders_accept_at_once_exactly_one_wins(
 ) -> None:
     pool, (a, b) = await _offered_pool(session_factory, 2)
     ra, rb = await asyncio.gather(
-        client.post(f"/logistics/offers/{pool.id}/accept", headers=make_token(a, "delivery")),
-        client.post(f"/logistics/offers/{pool.id}/accept", headers=make_token(b, "delivery")),
+        client.post(f"/offers/{pool.id}/accept", headers=make_token(a, "delivery")),
+        client.post(f"/offers/{pool.id}/accept", headers=make_token(b, "delivery")),
     )
     codes = sorted([ra.status_code, rb.status_code])
     assert codes == [200, 409]
@@ -190,12 +190,8 @@ async def test_two_riders_accept_at_once_exactly_one_wins(
 
     # The loser's offer is gone from their list; the winner sees the route as theirs
     other = b if winner == a else a
-    assert (
-        await client.get("/logistics/offers/mine", headers=make_token(other, "delivery"))
-    ).json() == []
-    again = await client.post(
-        f"/logistics/offers/{pool.id}/accept", headers=make_token(winner, "delivery")
-    )
+    assert (await client.get("/offers/mine", headers=make_token(other, "delivery"))).json() == []
+    again = await client.post(f"/offers/{pool.id}/accept", headers=make_token(winner, "delivery"))
     assert again.status_code == 200  # a retry by the winner is not an error
 
 
@@ -204,19 +200,17 @@ async def test_open_offers_list_and_decline(
     client: Any, session_factory: async_sessionmaker[AsyncSession], make_token: Any
 ) -> None:
     pool, (a,) = await _offered_pool(session_factory, 1)
-    mine = (await client.get("/logistics/offers/mine", headers=make_token(a, "delivery"))).json()
+    mine = (await client.get("/offers/mine", headers=make_token(a, "delivery"))).json()
     assert len(mine) == 1 and mine[0]["poolId"] == str(pool.id) and mine[0]["stopCount"] == 2
     assert mine[0]["firstPickup"]["lat"] == 21.0
     route = mine[0]["stops"]
     assert [x["seq"] for x in route] == sorted(x["seq"] for x in route) and len(route) == 2
     assert route[0]["stopType"] == "PICKUP" and "address" not in route[0]
     assert (
-        await client.post(f"/logistics/offers/{pool.id}/decline", headers=make_token(a, "delivery"))
+        await client.post(f"/offers/{pool.id}/decline", headers=make_token(a, "delivery"))
     ).status_code == 204
-    assert (
-        await client.get("/logistics/offers/mine", headers=make_token(a, "delivery"))
-    ).json() == []
+    assert (await client.get("/offers/mine", headers=make_token(a, "delivery"))).json() == []
     stranger = await client.post(
-        f"/logistics/offers/{pool.id}/accept", headers=make_token(uuid4(), "delivery")
+        f"/offers/{pool.id}/accept", headers=make_token(uuid4(), "delivery")
     )
     assert stranger.status_code == 404

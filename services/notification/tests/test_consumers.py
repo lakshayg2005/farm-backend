@@ -114,6 +114,14 @@ def test_packing_a_produce_order_sends_one_message():
     assert ready is None
 
 
+def test_a_packed_flexible_order_says_it_leaves_with_the_shared_batch():
+    payload = {"orderId": str(uuid4()), "customerId": str(uuid4()), "deliveryMode": "FLEXIBLE"}
+    packed = map_event_to_notification(
+        Event(type="order.packed", producer="order", payload=payload)
+    )
+    assert packed is not None and "shared delivery" in packed[3] and "next batch" in packed[3]
+
+
 def land(event_type: str, **extra) -> Event:
     return Event(
         type=event_type,

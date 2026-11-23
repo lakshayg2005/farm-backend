@@ -2,7 +2,8 @@
 
 Mounted at /api/v1/logistics by the gateway.
 
-POST  /logistics/pools/run?date     Admin → trigger pooling job now
+POST  /logistics/pools/run?date&mode Admin → trigger pooling job now (mode=FLEXIBLE: the batch)
+GET   /logistics/pools/batch        Admin → the shared-delivery batch waiting for its next run
 GET   /logistics/pools?pool_date    Admin → saved pools for a date
 GET   /logistics/my-route?date      Delivery partner → today's assigned route
 POST  /logistics/stops/{id}/pickup  Delivery partner → confirm pickup at hub
@@ -20,7 +21,8 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -32,6 +34,7 @@ from farm_common.auth import CurrentUser, Role, get_current_user, require_roles
 from farm_common.errors import AppError, NotFound
 from farm_common.events import Event
 from farm_common.outbox import add_event
+from logistics_service.clustering import cluster_orders
 from logistics_service.database import get_session
 from logistics_service.db import (
     DeliveryPartner,
@@ -43,8 +46,10 @@ from logistics_service.db import (
     StopStatus,
     StopType,
 )
-from logistics_service.pooling import fetch_ready_orders, india_today, run_pooling
+from logistics_service.pooling import IST, fetch_ready_orders, india_today, run_pooling
 from logistics_service.schemas import (
+    BatchOrderOut,
+    BatchPreview,
     DeliverIn,
     LocationPingIn,
     OfferOut,
@@ -58,6 +63,7 @@ from logistics_service.schemas import (
     TrackOut,
 )
 from logistics_service.schemas import PoolStatus as SchemaPoolStatus
+from logistics_service.schemas import StopType as SchemaStopType
 from logistics_service.settings import LogisticsSettings, get_logistics_settings
 
 logger = logging.getLogger(__name__)
@@ -162,15 +168,25 @@ async def run_pools(
     pool_date: date = Query(
         default_factory=india_today, description="Date to pool orders for (default: today in India)"
     ),
+    mode: Literal["IMMEDIATE", "FLEXIBLE"] | None = Query(
+        default=None,
+        description="Pool only IMMEDIATE or only FLEXIBLE (the shared-delivery batch) orders; "
+        "both when omitted",
+    ),
     _user: CurrentUser = Depends(require_roles(Role.ADMIN)),
     session: AsyncSession = Depends(get_session),
     settings: LogisticsSettings = Depends(get_logistics_settings),
 ) -> PoolRunResponse:
-    """Fetch READY_FOR_DISPATCH orders, cluster them, persist pools, publish pool.assigned."""
+    """Fetch READY_FOR_DISPATCH orders, cluster them, persist pools, publish pool.assigned.
+
+    With mode=FLEXIBLE this is the daily shared-delivery batch run by hand ("run the batch now").
+    """
     from logistics_service.database import get_session_factory
 
-    orders = await fetch_ready_orders(pool_date, settings.order_service_url)
-    pools = await run_pooling(pool_date, orders, get_session_factory(), settings)
+    orders = await fetch_ready_orders(pool_date, settings.order_service_url, mode)
+    pools = await run_pooling(
+        pool_date, orders, get_session_factory(), settings, batch=mode == "FLEXIBLE"
+    )
 
     # Reload with stops for the response
     pool_outs: list[PoolOut] = []
@@ -179,6 +195,78 @@ async def run_pools(
         pool_outs.append(_pool_out(p, stops))
 
     return PoolRunResponse(pools_created=len(pools), pools=pool_outs)
+
+
+# ---------------------------------------------------------------------------
+# GET /logistics/pools/batch  (Admin only)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/pools/batch",
+    response_model=BatchPreview,
+    summary="The shared-delivery batch waiting for its next run (preview, creates nothing)",
+)
+async def batch_preview(
+    _user: CurrentUser = Depends(require_roles(Role.ADMIN)),
+    session: AsyncSession = Depends(get_session),
+    settings: LogisticsSettings = Depends(get_logistics_settings),
+) -> BatchPreview:
+    """FLEXIBLE orders that are packed and waiting, and how the next run would group them."""
+    now = datetime.now(IST)
+    next_run = now.replace(
+        hour=settings.batch_hour_ist, minute=settings.batch_minute_ist, second=0, microsecond=0
+    )
+    if next_run <= now:
+        next_run += timedelta(days=1)
+    # everything waiting, whatever its date, then what the next run would take
+    waiting = await fetch_ready_orders(date.max, settings.order_service_url, "FLEXIBLE")
+    # a route made by an earlier run may still be waiting for a partner to accept it: the order
+    # stays READY_FOR_DISPATCH until then, but it is no longer waiting for the batch
+    routed = set(
+        (
+            await session.execute(
+                select(PoolStop.order_id).where(
+                    PoolStop.order_id.in_([UUID(str(o["order_id"])) for o in waiting])
+                )
+            )
+        ).scalars()
+    )
+    waiting = [o for o in waiting if UUID(str(o["order_id"])) not in routed]
+    due = [
+        o
+        for o in waiting
+        if not o.get("delivery_date") or date.fromisoformat(o["delivery_date"]) <= next_run.date()
+    ]
+    clusters = cluster_orders(
+        due,
+        eps_km=settings.batch_dbscan_eps_km,
+        capacity_kg=settings.partner_capacity_kg,
+        max_orders=settings.max_drops_per_pool,
+        hub_eps_km=settings.batch_hub_eps_km,
+    )
+    rows = [
+        BatchOrderOut(
+            order_id=UUID(str(o["order_id"])),
+            address=o.get("address"),
+            weight_kg=float(o.get("weight_kg") or 0),
+            delivery_date=date.fromisoformat(o["delivery_date"])
+            if o.get("delivery_date")
+            else None,
+            route=n,
+        )
+        for n, cluster in enumerate(clusters, start=1)
+        for o in cluster
+    ]
+    return BatchPreview(
+        batch_time=f"{settings.batch_hour_ist:02d}:{settings.batch_minute_ist:02d}",
+        next_run_at=next_run,
+        waiting_orders=len(waiting),
+        due_orders=len(due),
+        estimated_routes=len(clusters),
+        total_weight_kg=round(sum(r.weight_kg for r in rows), 2),
+        orders=rows,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +704,10 @@ async def my_offers(
                 if first
                 else None,
                 stops=[
-                    OfferStop(seq=s.seq, stop_type=s.stop_type, lat=s.lat, lng=s.lng) for s in stops
+                    OfferStop(
+                        seq=s.seq, stop_type=SchemaStopType(s.stop_type), lat=s.lat, lng=s.lng
+                    )
+                    for s in stops
                 ],
                 offered_at=offer.created_at,
                 expires_at=offer.expires_at,

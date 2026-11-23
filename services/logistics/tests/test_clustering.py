@@ -87,3 +87,30 @@ class TestClusterOrders:
         pools = cluster_orders(near + far, eps_km=3.0)
         sizes = sorted(len(p) for p in pools)
         assert sizes == [2, 3]
+
+
+class TestSharedDeliveryBatch:
+    """The batch sees many orders at once: clusters must stay compact and near their farms."""
+
+    def test_a_long_strip_is_cut_into_compact_pools_not_in_arrival_order(self) -> None:
+        # a strip running north, 1 km apart; the orders arrive shuffled
+        strip = [_order(21.0 + i * 0.009, 81.3, weight_kg=10.0) for i in range(8)]
+        shuffled = [strip[i] for i in (0, 7, 1, 6, 2, 5, 3, 4)]
+        pools = cluster_orders(shuffled, eps_km=2.0, capacity_kg=0.0, max_orders=4)
+        assert sorted(len(p) for p in pools) == [4, 4]
+        for pool in pools:
+            lats = sorted(o["drop_lat"] for o in pool)
+            assert lats[-1] - lats[0] < 0.04  # 4 consecutive points, not both ends
+
+    def test_capacity_still_splits_a_strip_along_its_length(self) -> None:
+        strip = [_order(21.0 + i * 0.009, 81.3, weight_kg=20.0) for i in range(6)]
+        pools = cluster_orders(strip[::-1], eps_km=2.0, capacity_kg=60.0, max_orders=15)
+        assert [len(p) for p in pools] == [3, 3]
+        assert max(o["drop_lat"] for o in pools[0]) < min(o["drop_lat"] for o in pools[1])
+
+    def test_customers_next_door_but_farms_far_apart_are_not_pooled(self) -> None:
+        a = _order(21.100, 81.300)
+        b = _order(21.101, 81.301)
+        b["hub_lat"], b["hub_lng"] = 23.0, 83.0  # a farm ~280 km from a's farm
+        assert len(cluster_orders([a, b], eps_km=5.0)) == 1  # unchanged without the farm limit
+        assert len(cluster_orders([a, b], eps_km=5.0, hub_eps_km=30.0)) == 2

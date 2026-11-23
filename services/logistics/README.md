@@ -22,9 +22,23 @@ Delivery pooling, routes, partner app API, tracking, and proof of delivery.
 - **OSRM Routing Integration**: Calls the OSRM Trip API for the drop order and `km_saved`, then the Route API through the stops in their real visiting order (all pickups, then all drops) for the road line, `total_km` and per-drop ETAs. The line is stored on the pool and returned as `routePath` ([lat, lng] pairs) by `GET /my-route`; clients fall back to straight lines when it is absent. Point `OSRM_BASE_URL` at your own router (`infra/osrm/`); the public demo server is rate-limited and has no uptime guarantee.
 - **Event Publishing**: Publishes `pool.assigned` with pool metadata and stops via the transactional outbox (`farm_common.outbox`).
 
-### 2. Worker & Nightly Cron
-- An **arq** worker (`logistics_service.worker.WorkerSettings`) executes the nightly pooling cron job at `20:30 UTC` (`02:00 IST`).
-- Can also be triggered on-demand via `POST /api/v1/logistics/pools/run?date=YYYY-MM-DD`.
+### 2. Worker & crons
+- An **arq** worker (`logistics_service.worker.WorkerSettings`) runs two crons:
+  - **02:00 IST** (`20:30 UTC`): safety net that pools any IMMEDIATE order missed on packing.
+  - **10:00 IST** (`BATCH_HOUR_IST`/`BATCH_MINUTE_IST`): the **shared-delivery batch**, see below.
+- Can also be triggered on-demand via `POST /api/v1/logistics/pools/run?pool_date=YYYY-MM-DD[&mode=IMMEDIATE|FLEXIBLE]`
+  (no `mode` pools both).
+
+### 3. Shared-delivery batch (FLEXIBLE orders)
+A customer who chose "I can wait" has `deliveryMode = FLEXIBLE`. Packing such an order sends
+`order.ready_for_dispatch` as usual, but the consumer **does not** start a pooling run for it: the
+order waits. At the batch time the worker fetches every waiting FLEXIBLE order due that day or
+earlier (`GET order/internal/orders/ready-for-dispatch?mode=FLEXIBLE`) and pools them with wider
+settings than an immediate run: drops within `BATCH_DBSCAN_EPS_KM` (5 km) and pickups within
+`BATCH_HUB_EPS_KM` (30 km). A cluster over capacity or over `MAX_DROPS_PER_POOL` is cut along its
+longest axis, so pools stay compact. The new pools are offered to partners exactly like any other
+(first to accept wins). Admins can preview the queue and its routes with `GET /pools/batch`, and run
+it early with `POST /pools/run?mode=FLEXIBLE`.
 
 ---
 

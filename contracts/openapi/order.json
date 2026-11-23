@@ -106,6 +106,11 @@
             "description": "Day the customer wants the delivery. Defaults to tomorrow. Orders due the same day are pooled into one route.",
             "title": "Deliverydate"
           },
+          "deliveryMode": {
+            "$ref": "#/components/schemas/DeliveryMode",
+            "default": "IMMEDIATE",
+            "description": "IMMEDIATE (default): on a route as soon as the farmer packs it. FLEXIBLE: the customer accepts a later arrival; the order joins the daily shared-delivery batch (see GET /orders/delivery-options) and has a lower delivery fee."
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/OrderItemIn"
@@ -215,6 +220,78 @@
           "location"
         ],
         "title": "DeliveryAddress",
+        "type": "object"
+      },
+      "DeliveryMode": {
+        "description": "How fast the customer wants the delivery.\n\nIMMEDIATE: the order is put on a route as soon as the farmer packs it (partners are offered it\nwithin seconds), at the normal delivery fee.\nFLEXIBLE: the customer accepts a later arrival. Packed orders wait, and once a day (10:00\nIndia time by default) logistics clusters every waiting FLEXIBLE order that is near each other\ninto shared routes, so one delivery partner serves a whole neighbourhood. Cheaper delivery fee.",
+        "enum": [
+          "IMMEDIATE",
+          "FLEXIBLE"
+        ],
+        "title": "DeliveryMode",
+        "type": "string"
+      },
+      "DeliveryOption": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "feePerOrder": {
+            "description": "Delivery fee charged for each farm's order",
+            "title": "Feeperorder",
+            "type": "number"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/DeliveryMode"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "title",
+          "description",
+          "feePerOrder"
+        ],
+        "title": "DeliveryOption",
+        "type": "object"
+      },
+      "DeliveryOptions": {
+        "description": "GET /orders/delivery-options: what the customer can choose at checkout (one source for the\nwebsite and the apps, so fees and the batch time are never hard-coded in a client).",
+        "properties": {
+          "batchTime": {
+            "description": "Local time of the daily shared-delivery batch, HH:MM",
+            "title": "Batchtime",
+            "type": "string"
+          },
+          "nextBatchAt": {
+            "description": "The next batch run from now",
+            "format": "date-time",
+            "title": "Nextbatchat",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "timezone": {
+            "default": "Asia/Kolkata",
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "options",
+          "batchTime",
+          "nextBatchAt"
+        ],
+        "title": "DeliveryOptions",
         "type": "object"
       },
       "ErrorBody": {
@@ -359,6 +436,11 @@
             "description": "DELIVERY only. Defaults to tomorrow, like checkout.",
             "title": "Deliverydate"
           },
+          "deliveryMode": {
+            "$ref": "#/components/schemas/DeliveryMode",
+            "default": "IMMEDIATE",
+            "description": "DELIVERY only: IMMEDIATE or FLEXIBLE, as at checkout."
+          },
           "option": {
             "$ref": "#/components/schemas/HarvestOption"
           },
@@ -378,6 +460,19 @@
       "Order": {
         "description": "One order per farm, inside a checkout. A HARVEST order is one order from one reservation.",
         "properties": {
+          "batchAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "FLEXIBLE orders not yet on a route: when the next shared-delivery batch that can take this order runs (an estimate; it is the first batch after the delivery date). Empty once the order is on a route, and for IMMEDIATE orders.",
+            "title": "Batchat"
+          },
           "checkoutId": {
             "format": "uuid",
             "title": "Checkoutid",
@@ -419,6 +514,10 @@
           "deliveryFee": {
             "title": "Deliveryfee",
             "type": "number"
+          },
+          "deliveryMode": {
+            "$ref": "#/components/schemas/DeliveryMode",
+            "default": "IMMEDIATE"
           },
           "farmId": {
             "anyOf": [
@@ -513,6 +612,19 @@
             "title": "Balancedue",
             "type": "number"
           },
+          "batchAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "FLEXIBLE orders not yet on a route: when the next shared-delivery batch that can take this order runs (an estimate; it is the first batch after the delivery date). Empty once the order is on a route, and for IMMEDIATE orders.",
+            "title": "Batchat"
+          },
           "checkoutId": {
             "format": "uuid",
             "title": "Checkoutid",
@@ -554,6 +666,10 @@
           "deliveryFee": {
             "title": "Deliveryfee",
             "type": "number"
+          },
+          "deliveryMode": {
+            "$ref": "#/components/schemas/DeliveryMode",
+            "default": "IMMEDIATE"
           },
           "events": {
             "items": {
@@ -903,6 +1019,18 @@
       "OrderSummary": {
         "description": "A row of GET /orders.",
         "properties": {
+          "batchAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batchat"
+          },
           "checkoutId": {
             "format": "uuid",
             "title": "Checkoutid",
@@ -917,6 +1045,10 @@
             "default": "INR",
             "title": "Currency",
             "type": "string"
+          },
+          "deliveryMode": {
+            "$ref": "#/components/schemas/DeliveryMode",
+            "default": "IMMEDIATE"
           },
           "farmId": {
             "anyOf": [
@@ -1313,7 +1445,7 @@
     },
     "/internal/orders/ready-for-dispatch": {
       "get": {
-        "description": "Orders in READY_FOR_DISPATCH whose delivery date is `date` or earlier.\n\nThe shape is what the logistics pooling job reads (snake_case keys, not the public camelCase):\n`order_id`, `customer_id`, `hub_lat`/`hub_lng` (where the farm hands the produce over),\n`drop_lat`/`drop_lng` (the customer's address), `weight_kg`, `address` and `contact_phone`\n(so the partner can call the customer). Once logistics publishes `pool.assigned` the order\nmoves to POOLED and no longer shows up here.",
+        "description": "Orders in READY_FOR_DISPATCH whose delivery date is `date` or earlier.\n\nLogistics pools IMMEDIATE orders right after packing and FLEXIBLE ones in the daily batch, so\nit asks for one mode at a time (`mode`); the admin \"run now\" button asks for both.\n\nThe shape is what the logistics pooling job reads (snake_case keys, not the public camelCase):\n`order_id`, `delivery_mode`, `customer_id`, `hub_lat`/`hub_lng` (where the farm hands the produce over),\n`drop_lat`/`drop_lng` (the customer's address), `weight_kg`, `address` and `contact_phone`\n(so the partner can call the customer). Once logistics publishes `pool.assigned` the order\nmoves to POOLED and no longer shows up here.",
         "operationId": "ready_for_dispatch_internal_orders_ready_for_dispatch_get",
         "parameters": [
           {
@@ -1326,6 +1458,24 @@
               "format": "date",
               "title": "Date",
               "type": "string"
+            }
+          },
+          {
+            "description": "Only IMMEDIATE or only FLEXIBLE orders; both when omitted",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DeliveryMode"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only IMMEDIATE or only FLEXIBLE orders; both when omitted",
+              "title": "Mode"
             }
           }
         ],
@@ -1598,6 +1748,53 @@
           }
         ],
         "summary": "Checkout: place one order per farm",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/orders/delivery-options": {
+      "get": {
+        "description": "Fee per order and the time of the daily shared-delivery batch. Send the chosen `mode` as `deliveryMode` in POST /orders. Clients show this instead of hard-coding the fees.",
+        "operationId": "delivery_options_orders_delivery_options_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The token does not have the required role"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The delivery choices at checkout: immediate or shared (flexible)",
         "tags": [
           "orders"
         ]

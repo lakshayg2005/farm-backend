@@ -21,6 +21,16 @@ class LogisticsSettings(ServiceSettings):
     # due that (India) day.
     pooling_cron_hour: int = 20
     pooling_cron_minute: int = 30
+    # Shared-delivery batch (orders the customer placed as FLEXIBLE): packed FLEXIBLE orders are not
+    # routed at once; they wait and are clustered together at this India time every day, so one
+    # partner serves a whole neighbourhood. The order service reads the same two variables to tell
+    # the customer when to expect it.
+    batch_hour_ist: int = 10
+    batch_minute_ist: int = 0
+    # The batch sees many more orders than a single packed order does, so it may cluster a little
+    # wider than the immediate run's dbscan_eps_km, as long as the farms to visit are close too.
+    batch_dbscan_eps_km: float = 5.0
+    batch_hub_eps_km: float = 30.0
     # How a new pool gets its delivery partner:
     #   "offer"  - offer it to nearby online partners; the first to accept gets it (default)
     #   "assign" - assign it straight to the least-loaded partner (the old behaviour)

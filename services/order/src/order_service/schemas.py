@@ -41,6 +41,20 @@ class OrderStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class DeliveryMode(StrEnum):
+    """How fast the customer wants the delivery.
+
+    IMMEDIATE: the order is put on a route as soon as the farmer packs it (partners are offered it
+    within seconds), at the normal delivery fee.
+    FLEXIBLE: the customer accepts a later arrival. Packed orders wait, and once a day (10:00
+    India time by default) logistics clusters every waiting FLEXIBLE order that is near each other
+    into shared routes, so one delivery partner serves a whole neighbourhood. Cheaper delivery fee.
+    """
+
+    IMMEDIATE = "IMMEDIATE"
+    FLEXIBLE = "FLEXIBLE"
+
+
 class OrderType(StrEnum):
     """PRODUCE is the V1 purchase of listed produce. HARVEST is added by the V2 harvest flow."""
 
@@ -226,6 +240,12 @@ class CheckoutRequest(ApiModel):
         description="Day the customer wants the delivery. Defaults to tomorrow. Orders due the "
         "same day are pooled into one route.",
     )
+    delivery_mode: DeliveryMode = Field(
+        default=DeliveryMode.IMMEDIATE,
+        description="IMMEDIATE (default): on a route as soon as the farmer packs it. FLEXIBLE: the "
+        "customer accepts a later arrival; the order joins the daily shared-delivery batch "
+        "(see GET /orders/delivery-options) and has a lower delivery fee.",
+    )
     payment_intent_id: UUID
     notes: str | None = Field(default=None, max_length=500)
 
@@ -240,6 +260,10 @@ class HarvestOrderChoice(ApiModel):
     )
     delivery_date: date | None = Field(
         default=None, description="DELIVERY only. Defaults to tomorrow, like checkout."
+    )
+    delivery_mode: DeliveryMode = Field(
+        default=DeliveryMode.IMMEDIATE,
+        description="DELIVERY only: IMMEDIATE or FLEXIBLE, as at checkout.",
     )
 
     @model_validator(mode="after")
@@ -272,6 +296,13 @@ class Order(ApiModel):
         default=None, description="Empty on a harvest order that is not delivered"
     )
     delivery_date: date | None = None
+    delivery_mode: DeliveryMode = DeliveryMode.IMMEDIATE
+    batch_at: datetime | None = Field(
+        default=None,
+        description="FLEXIBLE orders not yet on a route: when the next shared-delivery batch that "
+        "can take this order runs (an estimate; it is the first batch after the delivery date). "
+        "Empty once the order is on a route, and for IMMEDIATE orders.",
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -299,6 +330,8 @@ class OrderSummary(ApiModel):
     farm_id: UUID | None = None
     reservation_id: UUID | None = None
     harvest_option: HarvestOption | None = None
+    delivery_mode: DeliveryMode = DeliveryMode.IMMEDIATE
+    batch_at: datetime | None = None
     status: OrderStatus
     item_count: int
     total: float
@@ -308,6 +341,23 @@ class OrderSummary(ApiModel):
     )
     created_at: datetime
     updated_at: datetime
+
+
+class DeliveryOption(ApiModel):
+    mode: DeliveryMode
+    title: str
+    description: str
+    fee_per_order: float = Field(description="Delivery fee charged for each farm's order")
+
+
+class DeliveryOptions(ApiModel):
+    """GET /orders/delivery-options: what the customer can choose at checkout (one source for the
+    website and the apps, so fees and the batch time are never hard-coded in a client)."""
+
+    options: list[DeliveryOption]
+    batch_time: str = Field(description="Local time of the daily shared-delivery batch, HH:MM")
+    timezone: str = "Asia/Kolkata"
+    next_batch_at: datetime = Field(description="The next batch run from now")
 
 
 class Payout(ApiModel):

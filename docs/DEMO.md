@@ -37,6 +37,8 @@ All other customers are `+91920000000N` (N = 1 to 10), farmers `+91910000000N` (
 - **About 27 orders in every status:** to pack, cancelled, packed and due tomorrow (waiting for tomorrow's
   route), and the rest packed today, pooled and either delivered with the customer's code (with ratings),
   on the road, or assigned and waiting.
+- **Shared delivery:** three packed orders placed as "I can wait" (FLEXIBLE) stay out of the pooling run; they
+  wait for the daily 10:00 batch, which the admin can run by hand from the Pooling page.
 - **Pooling:** the real job groups the due orders. The biggest route has about ten stops across Bhilai and
   Durg, and the admin page shows the kilometres saved.
 - **Photos:** about 65 uploaded through the normal signed-upload flow, so thumbnails and

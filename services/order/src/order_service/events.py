@@ -6,7 +6,8 @@ Published (through the outbox, in the same transaction as the status change):
                               (status PLACED, the customer then picks delivery or buy-back)
     order.packed              the farmer packed it
     order.ready_for_dispatch  packed (or a harvest the customer wants delivered); logistics can
-                              pool it
+                              pool it. An IMMEDIATE order is pooled at once, a FLEXIBLE one waits
+                              for the daily shared-delivery batch (`deliveryMode` in the payload)
     order.pooled              logistics put it on a delivery route (notification tells the customer)
     order.in_transit          the partner picked it up
     order.completed           delivered and closed
@@ -39,6 +40,7 @@ from farm_common.schemas import ApiModel
 from order_service.db import OrderRow
 from order_service.schemas import (
     DeliveryAddress,
+    DeliveryMode,
     GeoPoint,
     HarvestOption,
     OrderStatus,
@@ -103,6 +105,8 @@ class OrderEventPayload(ApiModel):
     currency: str
     delivery_address: DeliveryAddress | None = None  # empty unless the order is delivered
     delivery_date: date | None = None
+    # FLEXIBLE orders are not routed when packed: logistics holds them for the daily batch
+    delivery_mode: DeliveryMode = DeliveryMode.IMMEDIATE
 
 
 class OrderCancelledPayload(OrderEventPayload):
@@ -179,6 +183,7 @@ def build_payload(order: OrderRow, **extra: Any) -> dict[str, Any]:
         "currency": order.currency,
         "delivery_address": order.delivery_address,
         "delivery_date": order.delivery_date,
+        "delivery_mode": order.delivery_mode or "IMMEDIATE",
         **extra,
     }
     model = OrderCancelledPayload if "reason" in extra else OrderEventPayload

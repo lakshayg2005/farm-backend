@@ -4,7 +4,9 @@ user.registered / user.roles_changed (identity): keep the delivery_partners tabl
 who holds the delivery role, so the pooling job has partners to assign (HLD section 14, step 5).
 
 order.ready_for_dispatch (order, sent when the farmer packs): pool that delivery date's orders a
-few seconds later, so partners are offered the route at once instead of at the nightly run.
+few seconds later, so partners are offered the route at once instead of at the nightly run. Only
+for IMMEDIATE orders: an order the customer placed as FLEXIBLE is held for the daily
+shared-delivery batch (worker.flexible_batch), where it is clustered with its neighbours.
 """
 
 from __future__ import annotations
@@ -99,6 +101,11 @@ def make_handler(
 ) -> Callable[[Event], Awaitable[None]]:
     async def handle(event: Event) -> None:
         if event.type == "order.ready_for_dispatch":
+            if (event.payload or {}).get("deliveryMode") == "FLEXIBLE":
+                logger.info(
+                    "Order %s waits for the shared-delivery batch", event.payload.get("orderId")
+                )
+                return
             if trigger is not None:
                 from logistics_service.pooling import india_today
 

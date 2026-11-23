@@ -87,7 +87,7 @@ async def test_single_order_creates_one_pool(
 async def test_pool_assigned_event_in_outbox(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    settings = LogisticsSettings(events_enabled=False)
+    settings = LogisticsSettings(events_enabled=False, dispatch_mode="assign")
     orders = [_order(21.1, 81.3)]
 
     with patch(
@@ -238,3 +238,22 @@ async def test_running_twice_does_not_pool_an_order_again(
 
 def test_a_vehicle_carries_about_500_kg_by_default() -> None:
     assert LogisticsSettings().partner_capacity_kg == 500.0
+
+
+@pytest.mark.asyncio
+async def test_the_batch_clusters_wider_than_an_immediate_run(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Two homes ~4.4 km apart: separate routes on an immediate run (eps 3 km), one shared route in
+    the daily batch (eps 5 km), because their farm is the same."""
+    settings = LogisticsSettings(events_enabled=False, dispatch_mode="assign")
+
+    def orders() -> list[dict[str, Any]]:
+        return [_order(21.10, 81.30), _order(21.14, 81.30)]
+
+    with patch("logistics_service.pooling.get_route", new=AsyncMock(return_value=_MOCK_ROUTE)):
+        now = await run_pooling(POOL_DATE, orders(), session_factory, settings)
+        batch = await run_pooling(POOL_DATE, orders(), session_factory, settings, batch=True)
+
+    assert len(now) == 2
+    assert len(batch) == 1

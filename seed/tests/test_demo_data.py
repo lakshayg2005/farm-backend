@@ -53,6 +53,6 @@ def test_orders_only_use_listings_that_exist():
         for item in farm.listings
     }
     for _customer, lines, fate in demo.ORDERS:
-        assert fate in {"CONFIRMED", "CANCELLED", "WAITING", "FAIL_LOWER", "DISPATCH"}
+        assert fate in {"CONFIRMED", "CANCELLED", "WAITING", "FAIL_LOWER", "DISPATCH", "SHARED"}
         for farmer, crop, _qty in lines:
             assert (farmer, crop) in listed, (farmer, crop)

@@ -12,6 +12,13 @@ class OrderSettings(ServiceSettings):
     # Flat delivery fee added to every per-farm order.
     # TODO(M1): assumed flat fee; replace when a pricing rule exists.
     delivery_fee_per_order: Decimal = Decimal("20.00")
+    # Delivery fee for a FLEXIBLE order (the customer accepts a later arrival and rides in the
+    # shared-delivery batch). Cheaper than delivery_fee_per_order: that is the customer's reward.
+    delivery_fee_flexible: Decimal = Decimal("10.00")
+    # When the shared-delivery batch runs, India time. Logistics reads the same two variables to
+    # schedule the run; here they only tell the customer when to expect it.
+    batch_hour_ist: int = 10
+    batch_minute_ist: int = 0
     # Mock payments always succeed, except when the payment intent amount equals this value.
     # Use it in demos and tests to show the payment-failed path.
     mock_payment_fail_amount: Decimal | None = None

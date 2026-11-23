@@ -294,8 +294,12 @@ async def run_pooling(
     orders: list[Order],
     session_factory: async_sessionmaker[AsyncSession],
     settings: LogisticsSettings,
+    batch: bool = False,
 ) -> list[DeliveryPool]:
     """Run the full pooling job for `pool_date`.
+
+    `batch=True` is the daily shared-delivery run (FLEXIBLE orders): a wider cluster radius, and
+    pickups must be close too (see `batch_*` in the settings).
 
     `orders` is a list of dicts with keys:
         order_id, hub_lat, hub_lng, drop_lat, drop_lng,
@@ -311,7 +315,7 @@ async def run_pooling(
     async with session_factory() as lock:
         await lock.execute(select(func.pg_advisory_lock(POOLING_LOCK_KEY)))
         try:
-            return await _pool(pool_date, orders, session_factory, settings)
+            return await _pool(pool_date, orders, session_factory, settings, batch)
         finally:
             await lock.execute(select(func.pg_advisory_unlock(POOLING_LOCK_KEY)))
 
@@ -324,6 +328,7 @@ async def _pool(
     orders: list[Order],
     session_factory: async_sessionmaker[AsyncSession],
     settings: LogisticsSettings,
+    batch: bool = False,
 ) -> list[DeliveryPool]:
     async with session_factory() as session:
         on_a_route = set(
@@ -342,13 +347,18 @@ async def _pool(
 
     pools_list = cluster_orders(
         orders,
-        eps_km=settings.dbscan_eps_km,
+        eps_km=settings.batch_dbscan_eps_km if batch else settings.dbscan_eps_km,
         capacity_kg=settings.partner_capacity_kg,
         max_orders=settings.max_drops_per_pool,
+        hub_eps_km=settings.batch_hub_eps_km if batch else None,
     )
     logger.info("Clustered %d orders into %d pools on %s", len(orders), len(pools_list), pool_date)
 
-    depart = datetime.now(UTC).replace(hour=6, minute=0, second=0, microsecond=0)
+    if batch:
+        # partners accept and reach the farms soon after the batch run
+        depart = datetime.now(UTC) + timedelta(minutes=30)
+    else:
+        depart = datetime.now(UTC).replace(hour=6, minute=0, second=0, microsecond=0)
     created: list[DeliveryPool] = []
 
     for cluster in pools_list:
@@ -402,8 +412,11 @@ async def _pool(
 async def fetch_ready_orders(
     pool_date: date,
     order_service_url: str,
+    mode: str | None = None,
 ) -> list[Order]:
     """Fetch orders in READY_FOR_DISPATCH status from the order service.
+
+    `mode` (IMMEDIATE or FLEXIBLE) limits it to one delivery mode; None returns both.
 
     Returns an empty list when the service is unavailable – the pooling job
     will then create zero pools (safe, can be re-run on demand).
@@ -413,7 +426,10 @@ async def fetch_ready_orders(
     url = f"{order_service_url}/internal/orders/ready-for-dispatch"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, params={"date": pool_date.isoformat()})
+            params = {"date": pool_date.isoformat()}
+            if mode:
+                params["mode"] = mode
+            resp = await client.get(url, params=params)
             resp.raise_for_status()
             return resp.json()
     except Exception as exc:

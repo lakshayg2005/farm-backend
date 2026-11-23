@@ -7,7 +7,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from logistics_service.worker import WorkerSettings, nightly_pool, run_pool_job
+from logistics_service.pooling import india_today
+from logistics_service.worker import (
+    WorkerSettings,
+    batch_cron_utc,
+    flexible_batch,
+    nightly_pool,
+    run_pool_job,
+)
 
 
 @pytest.mark.asyncio
@@ -30,9 +37,9 @@ async def test_run_pool_job_calls_pooling_engine() -> None:
     ):
         count = await run_pool_job(ctx, "2026-11-18")
         assert count == 2
-        mock_fetch.assert_awaited_once_with(date(2026, 11, 18), "http://order:8000")
+        mock_fetch.assert_awaited_once_with(date(2026, 11, 18), "http://order:8000", None)
         mock_run.assert_awaited_once_with(
-            date(2026, 11, 18), mock_orders, ctx["session_factory"], ctx["settings"]
+            date(2026, 11, 18), mock_orders, ctx["session_factory"], ctx["settings"], batch=False
         )
 
 
@@ -43,14 +50,42 @@ async def test_nightly_pool_triggers_for_today() -> None:
         "session_factory": AsyncMock(),
     }
 
-    today = date.today()
+    today = india_today()
     with patch("logistics_service.worker.run_pool_job", new=AsyncMock(return_value=3)) as mock_job:
         count = await nightly_pool(ctx)
         assert count == 3
-        mock_job.assert_awaited_once_with(ctx, today.isoformat())
+        mock_job.assert_awaited_once_with(ctx, today.isoformat(), "IMMEDIATE")
 
 
 def test_worker_does_not_use_the_shared_default_queue() -> None:
     """The media worker runs on the same Redis. On arq's default queue each worker took the other's
     jobs, found no such function and dropped them."""
     assert WorkerSettings.queue_name not in (None, "arq:queue")
+
+
+@pytest.mark.asyncio
+async def test_the_batch_pools_flexible_orders_with_the_wider_clustering() -> None:
+    ctx = {
+        "settings": AsyncMock(order_service_url="http://order:8000"),
+        "session_factory": AsyncMock(),
+    }
+    with (
+        patch("logistics_service.worker.fetch_ready_orders", new=AsyncMock(return_value=[])) as f,
+        patch("logistics_service.worker.run_pooling", new=AsyncMock(return_value=[])) as run,
+    ):
+        await flexible_batch(ctx)
+        assert f.await_args.args[2] == "FLEXIBLE"
+        assert run.await_args.kwargs == {"batch": True}
+
+
+def test_batch_cron_is_ten_ist_which_is_0430_utc() -> None:
+    assert batch_cron_utc(10, 0) == (4, 30)
+    assert batch_cron_utc(5, 0) == (23, 30)  # the previous UTC day
+    assert batch_cron_utc(0, 15) == (18, 45)
+
+
+def test_worker_schedules_both_the_nightly_run_and_the_batch() -> None:
+    assert {j.coroutine.__name__ for j in WorkerSettings.cron_jobs} == {
+        "nightly_pool",
+        "flexible_batch",
+    }

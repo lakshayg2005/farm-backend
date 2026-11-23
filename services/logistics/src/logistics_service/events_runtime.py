@@ -39,7 +39,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 from logistics_service.pooling import fetch_ready_orders, run_pooling
 
                 async def pool_day(day):  # type: ignore[no-untyped-def]
-                    orders = await fetch_ready_orders(day, settings.order_service_url)
+                    # FLEXIBLE orders are not pooled on packing: they wait for the daily batch
+                    orders = await fetch_ready_orders(day, settings.order_service_url, "IMMEDIATE")
                     return await run_pooling(day, orders, session_factory, settings)
 
                 trigger = PoolTrigger(pool_day, settings.pool_on_ready_delay_s)
