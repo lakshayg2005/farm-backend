@@ -234,6 +234,8 @@ services:
       <<: *env
       DATABASE_URL: postgresql+asyncpg://farm_notification:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       ROOT_PATH: /api/v1/notification
+      FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
+      FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
 
 volumes:
   pgdata:

@@ -44,7 +44,9 @@ Listens on the RabbitMQ `farm.events` topic exchange and maps domain events into
 - `pool.assigned`: `"Delivery Route Assigned"`
 
 ### 3. Push Delivery (`push.py`)
-- Dispatches push notifications via the Expo Push API (which proxies to Firebase Cloud Messaging for Android and APNs for iOS).
+- Picks the sender by token shape: `ExponentPushToken[...]` goes to the Expo Push API, any other token is an FCM registration token and goes through the FCM HTTP v1 API (`FCM_SERVICE_ACCOUNT_JSON`, optional `FCM_PROJECT_ID`; never commit the key).
+- Every push carries `type`, `title`, `body` and the event's ids (`orderId`, `reservationId`, ...) in its data payload, at high priority on Android. It is sent from the same handler that writes the inbox row.
+- Tokens FCM reports as unregistered are deleted.
 - Handled asynchronously outside the database transaction with graceful failure handling.
 
 ---

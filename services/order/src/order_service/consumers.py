@@ -115,11 +115,11 @@ async def handle_event(
             return
         if event.type == ev.POOL_ASSIGNED:
             # TODO(M1): assumed payload {orderIds: [...]} (or {orderId}); owner M2 (#19)
-            steps: list[tuple[OrderStatus, str | None]] = [(S.POOLED, None)]
+            steps: list[tuple[OrderStatus, str | None]] = [(S.POOLED, ev.ORDER_POOLED)]
             expected, note = {S.READY_FOR_DISPATCH}, "Delivery pooled"
         elif event.type == ev.DELIVERY_STARTED:
             steps, expected, note = (
-                [(S.IN_TRANSIT, None)],
+                [(S.IN_TRANSIT, ev.ORDER_IN_TRANSIT)],
                 {S.READY_FOR_DISPATCH, S.POOLED},
                 "Picked up",
             )

@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from notification_service.db import DeviceToken, Notification, ProcessedEvent
@@ -84,6 +84,20 @@ def map_event_to_notification(
             NotificationType.ORDER_READY_FOR_DISPATCH,
             "Order Ready for Dispatch",
             f"Your order #{short_id} is ready for dispatch.",
+            {"orderId": oid},
+        )
+
+    if etype == "order.pooled":
+        cid = p.get("customerId")
+        if not cid:
+            return None
+        oid = str(p.get("orderId", ""))
+        short_id = oid[:8] if oid else ""
+        return (
+            UUID(str(cid)),
+            NotificationType.ORDER_POOLED,
+            "On a delivery route",
+            f"Your order #{short_id} is on a delivery route.",
             {"orderId": oid},
         )
 
@@ -219,12 +233,14 @@ def map_event_to_notification(
         if partner_id:
             stops = p.get("stopCount", 0)
             km = p.get("totalKm", 0.0)
+            km = km or 0.0
+            day = p.get("poolDate")
             return (
                 UUID(str(partner_id)),
                 NotificationType.ORDER_POOLED,
-                "Delivery Route Assigned",
+                f"New route for {day}" if day else "Delivery Route Assigned",
                 f"You have been assigned a route with {stops} stops ({km:.1f} km).",
-                {"poolId": p.get("poolId"), "totalKm": km},
+                {"poolId": p.get("poolId"), "poolDate": day, "totalKm": km},
             )
 
     return None
@@ -329,6 +345,8 @@ def make_event_handler(
     """Factory creating an asynchronous event handler for RabbitEventBus."""
     from farm_common.outbox import mark_processed
 
+    fcm = settings.fcm_client()  # built once so its access token is cached
+
     async def handle_event(event: Any) -> None:
         mapped = [
             m
@@ -340,7 +358,7 @@ def make_event_handler(
 
         event_id = getattr(event, "event_id", uuid4())
 
-        pushes: list[tuple[list[str], str, str, dict[str, Any]]] = []
+        pushes: list[tuple[list[str], str, str, str, dict[str, Any]]] = []
         async with session_factory() as session, session.begin():
             if not await mark_processed(session, ProcessedEvent, event_id):
                 logger.info("Event %s already processed; skipping", event_id)
@@ -362,12 +380,17 @@ def make_event_handler(
                 result = await session.execute(
                     select(DeviceToken.token).where(DeviceToken.user_id == target_user_id)
                 )
-                pushes.append(([t for (t,) in result.all()], title, body, payload))
+                pushes.append(
+                    ([t for (t,) in result.all()], notif_type.value, title, body, payload)
+                )
 
-        # Dispatch push notifications outside the DB transaction
+        # Push right away, outside the DB transaction. A push failure never loses the inbox row.
         if settings.push_enabled:
-            for tokens, title, body, payload in pushes:
-                if tokens:
+            dead: list[str] = []
+            for tokens, notif_type, title, body, payload in pushes:
+                if not tokens:
+                    continue
+                try:
                     await send_push_notification(
                         tokens=tokens,
                         title=title,
@@ -375,6 +398,15 @@ def make_event_handler(
                         data=payload,
                         expo_push_url=settings.expo_push_url,
                         access_token=settings.expo_access_token,
+                        fcm=fcm,
+                        notification_type=notif_type,
+                        invalid_tokens=dead,
                     )
+                except Exception:
+                    logger.exception("Push dispatch failed for event %s", event_id)
+            if dead:
+                async with session_factory() as session, session.begin():
+                    await session.execute(delete(DeviceToken).where(DeviceToken.token.in_(dead)))
+                logger.info("Removed %d unregistered device token(s)", len(dead))
 
     return handle_event

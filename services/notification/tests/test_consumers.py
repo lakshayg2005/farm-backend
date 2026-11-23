@@ -214,3 +214,33 @@ def test_farmer_is_told_about_a_new_rating():
     assert "Fresh" in body and data["score"] == 4
     # the customer who rated is not notified about their own rating
     assert map_event_to_notification(event) is None
+
+
+def test_order_pooled_tells_the_customer_and_pool_assigned_the_partner():
+    cust, oid, partner = uuid4(), uuid4(), uuid4()
+    mapped = map_event_to_notification(
+        Event(
+            type="order.pooled",
+            producer="order",
+            payload={"customerId": str(cust), "orderId": str(oid)},
+        )
+    )
+    assert mapped is not None
+    assert mapped[0] == cust and mapped[2] == "On a delivery route"
+    assert mapped[4]["orderId"] == str(oid)
+
+    route = map_event_to_notification(
+        Event(
+            type="pool.assigned",
+            producer="logistics",
+            payload={
+                "partnerId": str(partner),
+                "poolId": str(uuid4()),
+                "poolDate": "2026-11-24",
+                "stopCount": 4,
+                "totalKm": None,
+            },
+        )
+    )
+    assert route is not None
+    assert route[0] == partner and route[2] == "New route for 2026-11-24"

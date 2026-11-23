@@ -5,6 +5,8 @@ Published (through the outbox, in the same transaction as the status change):
                               HARVEST order created after a passed quality check (status PLACED)
     order.packed              the farmer packed it; quality creates an inspection
     order.ready_for_dispatch  quality passed; logistics can pool it
+    order.pooled              logistics put it on a delivery route (notification tells the customer)
+    order.in_transit          the partner picked it up
     order.completed           delivered and closed
     order.rated               the customer rated a completed order (only orders that have a farm);
                               catalog keeps each farm's average from these
@@ -48,6 +50,8 @@ PRODUCER = "order"
 ORDER_PLACED = "order.placed"
 ORDER_PACKED = "order.packed"
 ORDER_READY_FOR_DISPATCH = "order.ready_for_dispatch"
+ORDER_POOLED = "order.pooled"
+ORDER_IN_TRANSIT = "order.in_transit"
 ORDER_COMPLETED = "order.completed"
 ORDER_CANCELLED = "order.cancelled"
 ORDER_RATED = "order.rated"
@@ -138,6 +142,8 @@ PUBLISHED: dict[str, type[ApiModel]] = {
     ORDER_PLACED: OrderEventPayload,
     ORDER_PACKED: OrderEventPayload,
     ORDER_READY_FOR_DISPATCH: OrderEventPayload,
+    ORDER_POOLED: OrderEventPayload,
+    ORDER_IN_TRANSIT: OrderEventPayload,
     ORDER_COMPLETED: OrderEventPayload,
     ORDER_CANCELLED: OrderCancelledPayload,
     ORDER_RATED: OrderRatedPayload,
