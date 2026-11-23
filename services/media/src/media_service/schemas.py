@@ -48,7 +48,7 @@ class MediaStatus(StrEnum):
 class GeoStatus(StrEnum):
     PENDING = "PENDING"
     VERIFIED = "VERIFIED"  # GPS within 2 km of the farm / plot
-    TOO_FAR = "TOO_FAR"  # GPS more than 2 km away: shown with an "unverified" badge
+    TOO_FAR = "TOO_FAR"  # GPS more than 2 km away
     NO_GPS = "NO_GPS"  # no GPS in the photo (e.g. screenshot, or location turned off)
     NO_REFERENCE = "NO_REFERENCE"  # the farm / plot location could not be fetched
     NOT_APPLICABLE = "NOT_APPLICABLE"  # owner type is not location-bound
@@ -86,7 +86,9 @@ class MediaOut(ApiModel):
     width: int | None
     height: int | None
     exif_time: datetime | None = Field(description="Capture time from EXIF, if present (UTC)")
-    is_geo_verified: bool = Field(description="False shows an 'unverified' badge")
+    is_geo_verified: bool = Field(
+        description="Whether the photo's GPS lies near the farm or plot. Informational; clients do not show it"
+    )
     geo_status: GeoStatus = Field(description="Why it is (not) verified")
     distance_m: float | None = Field(description="Metres from the farm / plot (0 = inside it)")
     reject_reason: str | None

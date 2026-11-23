@@ -39,9 +39,8 @@ All other customers are `+91920000000N` (N = 1 to 10), farmers `+91910000000N` (
   on the road, or assigned and waiting.
 - **Pooling:** the real job groups the due orders. The biggest route has about ten stops across Bhilai and
   Durg, and the admin page shows the kilometres saved.
-- **Photos:** about 65 uploaded through the normal signed-upload flow, so thumbnails, location checks and
-  badges are real. One listing photo (Verma Organic Farm, cabbage) is deliberately taken 6 km away so you
-  can show an **unverified** badge.
+- **Photos:** about 65 uploaded through the normal signed-upload flow, so thumbnails and
+  location data are real.
 
 ## Reset and reseed
 

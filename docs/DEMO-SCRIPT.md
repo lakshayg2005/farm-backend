@@ -13,8 +13,7 @@ Two stories, told in the order the platform was designed for (HLD section 5).
 2. **Farmer (web).** Sign in as Ramesh, +919100000001. **Orders → To pack** shows the new order and the stage bar at 2 of 6.
    Open **Notifications**: "New order to pack". Press **Mark packed**; the bar moves to 3 and the order is ready for a
    delivery partner (there is no quality gate: the customer's rating after delivery is the quality signal).
-3. **Photos.** *Say:* photos keep their GPS and capture time; the badge says whether it was taken at the farm. Show the
-   listing photo from Verma Organic Farm that is **Unverified** on purpose (6 km away).
+3. **Photos.** *Say:* photos keep their GPS and capture time. Show a listing photo.
 4. **Admin (web).** Sign in as +919999999999 (password in DEMO.md). **Dashboard**: orders per day, sales, customer
    rating. **Pooling**: pick today, **Run pooling**; routes appear on the map with kilometres saved against separate trips.
    **Orders → Needs a step**: where anything is stuck. *Say:* an admin can cancel and refund from here.

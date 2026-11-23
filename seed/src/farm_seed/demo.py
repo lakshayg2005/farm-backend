@@ -26,9 +26,6 @@ def today() -> date:
     return datetime.now(IST).date()
 
 
-# Photos taken far from their farm, so the "unverified" badge has something to show.
-FAR_AWAY = {("Verma Organic Farm", "cabbage")}
-
 # Orders: (customer index, ((farmer index, crop, qty), ...), fate). A fate is what happens next:
 #   CONFIRMED   left for the farmer to pack          CANCELLED     the customer cancels
 #   WAITING     packed, due tomorrow: waits for tomorrow's route
@@ -191,8 +188,7 @@ class Demo:
                     self.listings[(f_idx, item.crop)] = listing["id"]
                     self.s.listings += 1
                     if item.photo:
-                        far = (farm.name, item.crop) in FAR_AWAY
-                        lat = farm.lat + (0.055 if far else 0.0008)
+                        lat = farm.lat + 0.0008
                         media = self.photo(
                             farmer.phone,
                             item.photo,

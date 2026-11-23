@@ -84,8 +84,7 @@ These were found by reading the code; confirm each one before changing it.
    found is in `checkout/`. Verify that a customer can pay the deposit in the app.
 6. **Crop timeline never calls the API.** Nothing calls
    `GET /land/reservations/{id}/updates`; `CropTimelineView` shows local data. It must show the
-   farmer's real updates with photos and the "verified on site / unverified" badge
-   (`media.isGeoVerified`).
+   farmer's real updates with photos (no verification badge).
 7. **Catch-all `catch (_: Exception)`** blocks in `OrderScreens.kt`, `HomeViewModel.kt`,
    `StopSheets.kt`, `RouteScreen.kt` hide failures. Every network failure needs a visible state
    (see section 7).
