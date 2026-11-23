@@ -16,6 +16,7 @@ from arq import cron
 from arq.connections import RedisSettings
 
 from farm_common.log import configure_logging
+from farm_common.telemetry import setup_telemetry, traced_job
 from logistics_service.pooling import fetch_ready_orders, india_today, run_pooling
 from logistics_service.settings import LogisticsSettings, get_logistics_settings
 
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 RUN_POOL = "run_pool"
 
 
+@traced_job()
 async def run_pool_job(
     ctx: dict[str, Any], pool_date_iso: str | None = None, mode: str | None = None
 ) -> int:
@@ -70,6 +72,7 @@ async def startup(ctx: dict[str, Any]) -> None:
 
     settings = get_logistics_settings()
     configure_logging("logistics-worker", settings.log_level)
+    setup_telemetry("logistics-worker")
     ctx["settings"] = settings
     ctx["session_factory"] = get_session_factory()
 

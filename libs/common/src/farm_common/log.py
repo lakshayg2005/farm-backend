@@ -1,8 +1,10 @@
 """Correlation IDs and structured (JSON) logs.
 
-Every request gets an X-Correlation-ID (taken from the incoming header or generated). It is
-returned in the response, added to every log line, copied into published events, and restored
-when an event is consumed, so one user action can be traced across all services.
+Every request gets an X-Correlation-ID (taken from the incoming header, otherwise the request's
+OpenTelemetry trace id, otherwise a random id). It is returned in the response, added to every log
+line, copied into published events, and restored when an event is consumed, so one user action can
+be traced across all services. Log lines also carry traceId / spanId while a span is active, which
+Grafana uses to jump from a log line to its trace.
 """
 
 import json
@@ -13,6 +15,8 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from farm_common.telemetry import current_span_id, current_trace_id
 
 CORRELATION_HEADER = "X-Correlation-ID"
 
@@ -46,7 +50,7 @@ class CorrelationIdMiddleware:
 
         header = CORRELATION_HEADER.lower().encode()
         incoming = dict(scope["headers"]).get(header, b"").decode()[:64]
-        correlation_id = incoming or new_correlation_id()
+        correlation_id = incoming or current_trace_id() or new_correlation_id()
         token = _correlation_id.set(correlation_id)
 
         response_started = False
@@ -102,6 +106,10 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
             "correlationId": get_correlation_id(),
         }
+        trace_id = current_trace_id()
+        if trace_id:
+            entry["traceId"] = trace_id
+            entry["spanId"] = current_span_id()
         if record.exc_info:
             entry["exception"] = self.formatException(record.exc_info)
         return json.dumps(entry, default=str)
