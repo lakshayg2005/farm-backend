@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from logistics_service.pooling import india_today
 from logistics_service.worker import (
     WorkerSettings,
     batch_cron_utc,
@@ -49,7 +50,7 @@ async def test_nightly_pool_triggers_for_today() -> None:
         "session_factory": AsyncMock(),
     }
 
-    today = date.today()
+    today = india_today()
     with patch("logistics_service.worker.run_pool_job", new=AsyncMock(return_value=3)) as mock_job:
         count = await nightly_pool(ctx)
         assert count == 3

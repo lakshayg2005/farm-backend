@@ -87,7 +87,7 @@ async def test_single_order_creates_one_pool(
 async def test_pool_assigned_event_in_outbox(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    settings = LogisticsSettings(events_enabled=False)
+    settings = LogisticsSettings(events_enabled=False, dispatch_mode="assign")
     orders = [_order(21.1, 81.3)]
 
     with patch(
