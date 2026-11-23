@@ -4,7 +4,7 @@ Off unless OTEL_EXPORTER_OTLP_ENDPOINT is set (tests and plain local runs export
 is set, each process sends over OTLP/HTTP to that endpoint (an OpenTelemetry Collector):
 
 - traces: one span per HTTP request (FastAPI), per SQL statement (asyncpg), per outgoing HTTP call
-  (httpx), and per event published or consumed (RabbitMQ, see farm_common.events)
+  (httpx, urllib), and per event published or consumed (RabbitMQ, see farm_common.events)
 - metrics: request rate, errors and latency per route (http.server.request.duration), event
   counters and handler latency, and process CPU / memory / GC for each service instance
 
@@ -80,6 +80,7 @@ def setup_telemetry(service_name: str, version: str = "0.0.0") -> bool:
     from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.instrumentation.system_metrics import SystemMetricsInstrumentor
+    from opentelemetry.instrumentation.urllib import URLLibInstrumentor
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.resources import Resource
@@ -146,6 +147,7 @@ def setup_telemetry(service_name: str, version: str = "0.0.0") -> bool:
 
     AsyncPGInstrumentor().instrument()
     HTTPXClientInstrumentor().instrument()
+    URLLibInstrumentor().instrument()  # the order service calls catalog with urllib
     SystemMetricsInstrumentor(
         config={
             "process.cpu.time": ["user", "system"],
