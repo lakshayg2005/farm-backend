@@ -63,6 +63,7 @@ from logistics_service.schemas import (
     TrackOut,
 )
 from logistics_service.schemas import PoolStatus as SchemaPoolStatus
+from logistics_service.schemas import StopType as SchemaStopType
 from logistics_service.settings import LogisticsSettings, get_logistics_settings
 
 logger = logging.getLogger(__name__)
@@ -703,7 +704,10 @@ async def my_offers(
                 if first
                 else None,
                 stops=[
-                    OfferStop(seq=s.seq, stop_type=s.stop_type, lat=s.lat, lng=s.lng) for s in stops
+                    OfferStop(
+                        seq=s.seq, stop_type=SchemaStopType(s.stop_type), lat=s.lat, lng=s.lng
+                    )
+                    for s in stops
                 ],
                 offered_at=offer.created_at,
                 expires_at=offer.expires_at,
