@@ -283,10 +283,11 @@ async def pack_order(
 @router.post(
     "/orders/{order_id}/cancel",
     response_model=OrderDetail,
-    summary="Cancel an order before it is handed to logistics",
+    summary="Cancel an order before it is collected",
     description=(
-        "The customer, the farm's owner or an admin can cancel. Publishes order.cancelled "
-        "(catalog releases the stock) and records a REFUND payment."
+        "The customer or the farm's owner can cancel until the order is packed; an admin until "
+        "the delivery partner collects it. Publishes order.cancelled (catalog releases the "
+        "stock, logistics drops the delivery stops) and records a REFUND payment."
     ),
     responses={
         **_AUTH_ERRORS,

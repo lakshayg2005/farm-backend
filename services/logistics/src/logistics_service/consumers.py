@@ -3,6 +3,9 @@
 user.registered / user.roles_changed (identity): keep the delivery_partners table in step with
 who holds the delivery role, so the pooling job has partners to assign (HLD section 14, step 5).
 
+order.cancelled (order): an admin may cancel an order that is already on a route. Its open stops
+are skipped so the partner is not sent for it, and a pool with nothing left to do is closed.
+
 order.ready_for_dispatch (order, sent when the farmer packs): pool that delivery date's orders a
 few seconds later, so partners are offered the route at once instead of at the nightly run. Only
 for IMMEDIATE orders: an order the customer placed as FLEXIBLE is held for the daily
@@ -17,13 +20,26 @@ from collections.abc import Awaitable, Callable
 from datetime import date
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from farm_common.events import Event
 from farm_common.outbox import mark_processed
-from logistics_service.db import DeliveryPartner, ProcessedEvent
+from logistics_service.db import (
+    DeliveryPartner,
+    DeliveryPool,
+    PoolStatus,
+    PoolStop,
+    ProcessedEvent,
+    StopStatus,
+)
 
-BINDINGS = ["user.registered", "user.roles_changed", "order.ready_for_dispatch"]
+BINDINGS = [
+    "user.registered",
+    "user.roles_changed",
+    "order.ready_for_dispatch",
+    "order.cancelled",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +68,50 @@ async def on_user(session: AsyncSession, event: Event) -> None:
     partner.home_lng = float(lng) if lng is not None else None
 
 
+async def on_order_cancelled(session: AsyncSession, event: Event) -> None:
+    """Skip the cancelled order's open stops; close a pool that has nothing left to do.
+
+    A stop already DONE stays DONE. An order not on any route has no stops, so nothing happens
+    (an order cancelled before pooling is simply not fetched as ready for dispatch).
+    """
+    raw = event.payload.get("orderId")
+    if not raw:
+        return
+    stops = (
+        (
+            await session.execute(
+                select(PoolStop).where(
+                    PoolStop.order_id == UUID(str(raw)),
+                    PoolStop.status.in_([StopStatus.PENDING, StopStatus.ARRIVED]),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for stop in stops:
+        stop.status = StopStatus.SKIPPED
+        stop.notes = "Order cancelled"
+    await session.flush()
+    for pool_id in {stop.pool_id for stop in stops}:
+        left = await session.scalar(
+            select(PoolStop.id)
+            .where(
+                PoolStop.pool_id == pool_id,
+                PoolStop.status.in_([StopStatus.PENDING, StopStatus.ARRIVED]),
+            )
+            .limit(1)
+        )
+        pool = await session.get(DeliveryPool, pool_id)
+        if left is None and pool is not None:
+            pool.status = PoolStatus.COMPLETED
+    logger.info("Order %s cancelled: skipped %d stop(s)", raw, len(stops))
+
+
 HANDLERS: dict[str, Callable[[AsyncSession, Event], Awaitable[None]]] = {
     "user.registered": on_user,
     "user.roles_changed": on_user,
+    "order.cancelled": on_order_cancelled,
 }
 
 

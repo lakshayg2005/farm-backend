@@ -85,15 +85,19 @@ ALLOWED: dict[OrderStatus, set[OrderStatus]] = {
     S.PLACED: {S.CONFIRMED, S.CANCELLED},
     S.CONFIRMED: {S.PACKED, S.CANCELLED},
     S.PACKED: {S.READY_FOR_DISPATCH, S.CANCELLED},
-    S.READY_FOR_DISPATCH: {S.POOLED, S.IN_TRANSIT, S.DELIVERED},
-    S.POOLED: {S.IN_TRANSIT, S.DELIVERED},
+    S.READY_FOR_DISPATCH: {S.POOLED, S.IN_TRANSIT, S.DELIVERED, S.CANCELLED},
+    S.POOLED: {S.IN_TRANSIT, S.DELIVERED, S.CANCELLED},
     S.IN_TRANSIT: {S.DELIVERED},
     S.DELIVERED: {S.COMPLETED},
     S.COMPLETED: set(),
     S.CANCELLED: set(),
 }
-# An order can be cancelled until the farmer packs it; packing hands it to logistics.
+# The customer and the farmer can cancel until the farmer packs it; packing hands it to logistics.
 CANCELLABLE = {S.PLACED, S.CONFIRMED, S.PACKED}
+# An admin can also cancel once it is packed but not yet collected (waiting for a route, or on a
+# route). Logistics drops the stops when it sees `order.cancelled`. Once the partner has picked it
+# up (IN_TRANSIT) the goods are on the vehicle, so nobody can cancel.
+ADMIN_CANCELLABLE = CANCELLABLE | {S.READY_FOR_DISPATCH, S.POOLED}
 
 _CENT = Decimal("0.01")
 _IST = ZoneInfo("Asia/Kolkata")
@@ -462,7 +466,7 @@ async def cancel_order(
     session: AsyncSession, user: CurrentUser, order_id: UUID, reason: str | None
 ) -> OrderDetail:
     """The customer, the farm's owner (HLD: farmers can cancel too) or an admin cancels an order
-    until it is handed to logistics. A REFUND payment is recorded and catalog frees the stock."""
+    until it is handed to logistics (an admin until the partner collects it). A REFUND payment is recorded and catalog frees the stock."""
     order = await _load_order(session, order_id)
     actor: Literal["customer", "farmer", "admin", "system"]
     if user.has_any(Role.ADMIN):
@@ -473,7 +477,8 @@ async def cancel_order(
         actor = "farmer"
     else:
         raise NotFound("Order not found", code="ORDER_NOT_FOUND")
-    if OrderStatus(order.status) not in CANCELLABLE:
+    allowed = ADMIN_CANCELLABLE if actor == "admin" else CANCELLABLE
+    if OrderStatus(order.status) not in allowed:
         raise Conflict(
             f"An order in status {order.status} can no longer be cancelled",
             code="ORDER_NOT_CANCELLABLE",

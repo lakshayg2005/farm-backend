@@ -467,7 +467,8 @@ async def confirm_delivery(
             select(PoolStop).where(PoolStop.pool_id == stop.pool_id)
         )
         all_stops = list(stops_result.scalars())
-        if all(s.status == StopStatus.DONE or s.id == stop.id for s in all_stops):
+        closed = (StopStatus.DONE, StopStatus.SKIPPED)  # a cancelled order's stops are skipped
+        if all(s.status in closed or s.id == stop.id for s in all_stops):
             pool = await session.get(DeliveryPool, stop.pool_id)
             if pool:
                 pool.status = PoolStatus.COMPLETED
