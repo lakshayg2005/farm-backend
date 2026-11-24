@@ -186,11 +186,40 @@ async def test_cancel_without_a_body(api):
     assert event.payload["reason"] == "CUSTOMER_REQUEST"
 
 
-async def test_cancel_after_dispatch_is_rejected(api):
+async def test_customer_cannot_cancel_after_dispatch(api):
     order_id = await _dispatchable(api)
 
     response = await api.http.post(f"/orders/{order_id}/cancel")
 
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "ORDER_NOT_CANCELLABLE"
+
+
+async def test_admin_can_cancel_a_packed_order_waiting_for_dispatch(api):
+    order_id = await _dispatchable(api)
+    api.login(ADMIN)
+
+    response = await api.http.post(f"/orders/{order_id}/cancel", json={"reason": "Farm flooded"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "CANCELLED"
+    (event,) = await api.outbox("order.cancelled")
+    assert event.payload["cancelledBy"] == "admin"
+    assert event.payload["reason"] == "Farm flooded"
+
+
+async def test_admin_can_cancel_an_order_on_a_route_but_not_one_in_transit(api):
+    order_id = await _dispatchable(api)
+    await deliver(api, "pool.assigned", orderIds=[order_id])
+    response = await api.checkout(key="checkout-0002")
+    in_transit = response.json()["orders"][0]["id"]
+    await pack(api, in_transit)
+    await deliver(api, "delivery.started", orderId=in_transit)
+    api.login(ADMIN)
+
+    assert (await api.http.post(f"/orders/{order_id}/cancel")).status_code == 200
+    assert await status_of(api, order_id) == "CANCELLED"
+    response = await api.http.post(f"/orders/{in_transit}/cancel")
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "ORDER_NOT_CANCELLABLE"
 

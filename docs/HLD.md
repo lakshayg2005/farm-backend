@@ -211,7 +211,7 @@ Keep it to **seven services plus the gateway** (eight in the first plan; quality
 | land (V2) | Team 2 | plots, plot\_seasons, reservations, agreements, crop\_updates | Plot CRUD, map search, reserve and accept, plot-season lock, request expiry, crop timeline | reservation.requested / accepted / rejected / cancelled / expired / activated, crop.updated, harvest.ready | payment.succeeded, order.placed / completed / cancelled (harvest orders) |
 | media | Team 2 | media | Signed upload URLs, EXIF and GPS check, thumbnails | media.processed | — |
 | order | Team 1 | carts, orders, order\_items, payments, order\_events | V1 cart and checkout, V2 harvest orders, mock payments, order lifecycle | order.placed, order.packed, order.ready\_for\_dispatch, order.cancelled, payment.succeeded, order.completed, order.rated | reservation.accepted, harvest.ready, pool.assigned, delivery.started, delivery.completed |
-| logistics | Team 1 | delivery\_partners, hubs, delivery\_pools, pool\_stops, location\_pings | Pooling, route order, partner assignment, live tracking, proof of delivery | pool.assigned, delivery.completed | order.ready\_for\_dispatch |
+| logistics | Team 1 | delivery\_partners, hubs, delivery\_pools, pool\_stops, location\_pings | Pooling, route order, partner assignment, live tracking, proof of delivery | pool.assigned, delivery.completed | order.ready\_for\_dispatch, order.cancelled |
 | notification | Team 1 | notifications, device\_tokens | Push, email and in-app inbox | — | All of the above |
 
 **How services talk**
