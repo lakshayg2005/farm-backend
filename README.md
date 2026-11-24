@@ -3,6 +3,10 @@
 Shared microservice backend for the Farm Platform: **V1** (selling farm produce) and **V2** (farmland reservation).
 Both teams commit here; the website ([farm-web](https://github.com/lakshayg2005/farm-web)) and the apps ([farm-mobile](https://github.com/lakshayg2005/farm-mobile)) consume its APIs.
 
+## Architecture
+
+![High-level design of the Farm Platform: clients, gateway, seven services, data and infrastructure](docs/hld-diagram.png)
+
 ## Links
 
 | What | URL |
