@@ -276,7 +276,11 @@ def overview() -> dict:
         "Traffic, errors and latency (RED) for every Farm service. Start here.",
         ["overview"],
     )
-    b.var_query("service", "Service", "label_values(http_server_request_duration_seconds_count, service_name)")
+    b.var_query(
+        "service",
+        "Service",
+        "label_values(http_server_request_duration_seconds_count, service_name)",
+    )
     b.var_query(
         "route",
         "Route",
@@ -315,9 +319,7 @@ def overview() -> dict:
         4,
         4,
     )
-    b.add(
-        stat("p50 latency", q(0.5, "", bucket), "s", GREEN_AMBER_RED(0.1, 0.3)), 4, 4
-    )
+    b.add(stat("p50 latency", q(0.5, "", bucket), "s", GREEN_AMBER_RED(0.1, 0.3)), 4, 4)
     b.add(
         stat(
             "p95 latency",
@@ -329,15 +331,17 @@ def overview() -> dict:
         4,
         4,
     )
-    b.add(
-        stat("p99 latency", q(0.99, "", bucket), "s", GREEN_AMBER_RED(0.5, 1.5)), 4, 4
-    )
+    b.add(stat("p99 latency", q(0.99, "", bucket), "s", GREEN_AMBER_RED(0.5, 1.5)), 4, 4)
 
     b.row("Traffic")
     b.add(
         timeseries(
             "Requests / s by service",
-            [target(f"sum by (service_name) (rate({count}[$__rate_interval]))", "{{service_name}}")],
+            [
+                target(
+                    f"sum by (service_name) (rate({count}[$__rate_interval]))", "{{service_name}}"
+                )
+            ],
             "reqps",
             stack=True,
         ),
@@ -358,7 +362,9 @@ def overview() -> dict:
             overrides=[
                 {
                     "matcher": {"id": "byRegexp", "options": "5.."},
-                    "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}],
+                    "properties": [
+                        {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}
+                    ],
                 },
                 {
                     "matcher": {"id": "byName", "options": "429"},
@@ -518,7 +524,13 @@ def overview() -> dict:
                 },
             ],
         )
-        | {"options": {"showHeader": True, "cellHeight": "sm", "sortBy": [{"displayName": "p95", "desc": True}]}},
+        | {
+            "options": {
+                "showHeader": True,
+                "cellHeight": "sm",
+                "sortBy": [{"displayName": "p95", "desc": True}],
+            }
+        },
         24,
         12,
     )
@@ -583,7 +595,12 @@ def capacity() -> dict:
     b.row("Load (k6, client side)")
     b.add(stat("Virtual users", f"sum(k6_vus{{{k6}}})", spark=True), 4, 4)
     b.add(
-        stat("Requests / s (k6)", f"sum(rate(k6_http_reqs_total{{{k6}}}[$__rate_interval]))", "reqps", decimals=0),
+        stat(
+            "Requests / s (k6)",
+            f"sum(rate(k6_http_reqs_total{{{k6}}}[$__rate_interval]))",
+            "reqps",
+            decimals=0,
+        ),
         4,
         4,
     )
@@ -613,7 +630,11 @@ def capacity() -> dict:
             "Checks passing",
             f"avg(k6_checks_rate{{{k6}}})",
             "percentunit",
-            [{"color": "red", "value": None}, {"color": "#EAB839", "value": 0.95}, {"color": "green", "value": 0.99}],
+            [
+                {"color": "red", "value": None},
+                {"color": "#EAB839", "value": 0.95},
+                {"color": "green", "value": 0.99},
+            ],
             decimals=2,
         ),
         4,
@@ -628,7 +649,11 @@ def capacity() -> dict:
         timeseries(
             "Users vs throughput",
             [
-                target(f"sum(rate(k6_http_reqs_total{{{k6}}}[$__rate_interval]))", "requests/s", ref="A"),
+                target(
+                    f"sum(rate(k6_http_reqs_total{{{k6}}}[$__rate_interval]))",
+                    "requests/s",
+                    ref="A",
+                ),
                 target(f"sum(k6_vus{{{k6}}})", "virtual users", ref="B"),
             ],
             "reqps",
@@ -780,16 +805,32 @@ def capacity() -> dict:
 
     b.row("Business throughput")
     biz = [
-        ("Orders placed / min", 'service_name="order", http_route="/orders", http_request_method="POST", http_response_status_code=~"2.."'),
-        ("Logins / min", 'service_name="identity", http_route="/login", http_response_status_code=~"2.."'),
-        ("Sign-ups / min", 'service_name="identity", http_route="/register", http_response_status_code=~"2.."'),
+        (
+            "Orders placed / min",
+            'service_name="order", http_route="/orders", http_request_method="POST", http_response_status_code=~"2.."',
+        ),
+        (
+            "Logins / min",
+            'service_name="identity", http_route="/login", http_response_status_code=~"2.."',
+        ),
+        (
+            "Sign-ups / min",
+            'service_name="identity", http_route="/register", http_response_status_code=~"2.."',
+        ),
         ("Produce searches / min", 'service_name="catalog", http_route="/listings/search"'),
         ("Land searches / min", 'service_name="land", http_route="/plots/search"'),
-        ("Listings created / min", 'service_name="catalog", http_route="/listings", http_request_method="POST", http_response_status_code=~"2.."'),
+        (
+            "Listings created / min",
+            'service_name="catalog", http_route="/listings", http_request_method="POST", http_response_status_code=~"2.."',
+        ),
     ]
     for title, sel in biz:
         b.add(
-            stat(title, f"sum(rate(http_server_request_duration_seconds_count{{{sel}}}[$__rate_interval])) * 60", decimals=0),
+            stat(
+                title,
+                f"sum(rate(http_server_request_duration_seconds_count{{{sel}}}[$__rate_interval])) * 60",
+                decimals=0,
+            ),
             4,
             4,
         )
@@ -816,7 +857,17 @@ def infra() -> dict:
         4,
         4,
     )
-    b.add(stat("CPU limit", "vm_cgroup_cpu_limit_cores", "short", spark=False, description="Cores this container may use."), 4, 4)
+    b.add(
+        stat(
+            "CPU limit",
+            "vm_cgroup_cpu_limit_cores",
+            "short",
+            spark=False,
+            description="Cores this container may use.",
+        ),
+        4,
+        4,
+    )
     b.add(
         stat(
             "Memory used",
@@ -835,7 +886,11 @@ def infra() -> dict:
             "Disk free (home)",
             'node_filesystem_avail_bytes{mountpoint=~"/home.*|/"} / node_filesystem_size_bytes{mountpoint=~"/home.*|/"}',
             "percentunit",
-            [{"color": "red", "value": None}, {"color": "#EAB839", "value": 0.1}, {"color": "green", "value": 0.2}],
+            [
+                {"color": "red", "value": None},
+                {"color": "#EAB839", "value": 0.1},
+                {"color": "green", "value": 0.2},
+            ],
             decimals=0,
             spark=False,
         ),
@@ -843,7 +898,12 @@ def infra() -> dict:
         4,
     )
     b.add(
-        stat("Postgres up", "pg_up", spark=False, steps=[{"color": "red", "value": None}, {"color": "green", "value": 1}]),
+        stat(
+            "Postgres up",
+            "pg_up",
+            spark=False,
+            steps=[{"color": "red", "value": None}, {"color": "green", "value": 1}],
+        ),
         4,
         4,
     )
@@ -851,9 +911,15 @@ def infra() -> dict:
         timeseries(
             "CPU (cores)",
             [
-                target("rate(vm_cgroup_cpu_usage_seconds_total[$__rate_interval])", "used", ref="A"),
+                target(
+                    "rate(vm_cgroup_cpu_usage_seconds_total[$__rate_interval])", "used", ref="A"
+                ),
                 target("vm_cgroup_cpu_limit_cores", "limit", ref="B"),
-                target("rate(vm_cgroup_cpu_throttled_seconds_total[$__rate_interval])", "throttled", ref="C"),
+                target(
+                    "rate(vm_cgroup_cpu_throttled_seconds_total[$__rate_interval])",
+                    "throttled",
+                    ref="C",
+                ),
             ],
             overrides=[
                 {
@@ -895,7 +961,12 @@ def infra() -> dict:
     b.add(
         timeseries(
             "CPU by service (cores)",
-            [target("sum by (service_name) (rate(process_cpu_time_seconds_total[$__rate_interval]))", "{{service_name}}")],
+            [
+                target(
+                    "sum by (service_name) (rate(process_cpu_time_seconds_total[$__rate_interval]))",
+                    "{{service_name}}",
+                )
+            ],
             stack=True,
         ),
         8,
@@ -926,7 +997,9 @@ def infra() -> dict:
         timeseries(
             "Connections by state",
             [
-                target('sum by (state) (pg_stat_activity_count{datname="farm"})', "{{state}}", ref="A"),
+                target(
+                    'sum by (state) (pg_stat_activity_count{datname="farm"})', "{{state}}", ref="A"
+                ),
                 target("max(pg_settings_max_connections)", "max_connections", ref="B"),
             ],
             stack=False,
@@ -938,8 +1011,16 @@ def infra() -> dict:
         timeseries(
             "Transactions / s",
             [
-                target('sum(rate(pg_stat_database_xact_commit{datname="farm"}[$__rate_interval]))', "commits", ref="A"),
-                target('sum(rate(pg_stat_database_xact_rollback{datname="farm"}[$__rate_interval]))', "rollbacks", ref="B"),
+                target(
+                    'sum(rate(pg_stat_database_xact_commit{datname="farm"}[$__rate_interval]))',
+                    "commits",
+                    ref="A",
+                ),
+                target(
+                    'sum(rate(pg_stat_database_xact_rollback{datname="farm"}[$__rate_interval]))',
+                    "rollbacks",
+                    ref="B",
+                ),
             ],
             "ops",
         ),
@@ -966,10 +1047,26 @@ def infra() -> dict:
         timeseries(
             "Rows / s",
             [
-                target('sum(rate(pg_stat_database_tup_fetched{datname="farm"}[$__rate_interval]))', "fetched", ref="A"),
-                target('sum(rate(pg_stat_database_tup_inserted{datname="farm"}[$__rate_interval]))', "inserted", ref="B"),
-                target('sum(rate(pg_stat_database_tup_updated{datname="farm"}[$__rate_interval]))', "updated", ref="C"),
-                target('sum(rate(pg_stat_database_tup_deleted{datname="farm"}[$__rate_interval]))', "deleted", ref="D"),
+                target(
+                    'sum(rate(pg_stat_database_tup_fetched{datname="farm"}[$__rate_interval]))',
+                    "fetched",
+                    ref="A",
+                ),
+                target(
+                    'sum(rate(pg_stat_database_tup_inserted{datname="farm"}[$__rate_interval]))',
+                    "inserted",
+                    ref="B",
+                ),
+                target(
+                    'sum(rate(pg_stat_database_tup_updated{datname="farm"}[$__rate_interval]))',
+                    "updated",
+                    ref="C",
+                ),
+                target(
+                    'sum(rate(pg_stat_database_tup_deleted{datname="farm"}[$__rate_interval]))',
+                    "deleted",
+                    ref="D",
+                ),
             ],
             "rowsps",
         ),
@@ -981,7 +1078,11 @@ def infra() -> dict:
             "Locks and deadlocks",
             [
                 target('sum by (mode) (pg_locks_count{datname="farm"})', "{{mode}}", ref="A"),
-                target('sum(increase(pg_stat_database_deadlocks{datname="farm"}[$__rate_interval]))', "deadlocks", ref="B"),
+                target(
+                    'sum(increase(pg_stat_database_deadlocks{datname="farm"}[$__rate_interval]))',
+                    "deadlocks",
+                    ref="B",
+                ),
             ],
         ),
         8,
@@ -1001,7 +1102,12 @@ def infra() -> dict:
     b.add(
         timeseries(
             "Events published / s by type",
-            [target("sum by (event_type) (rate(farm_events_published_total[$__rate_interval]))", "{{event_type}}")],
+            [
+                target(
+                    "sum by (event_type) (rate(farm_events_published_total[$__rate_interval]))",
+                    "{{event_type}}",
+                )
+            ],
             "ops",
             stack=True,
         ),
@@ -1011,17 +1117,26 @@ def infra() -> dict:
     b.add(
         timeseries(
             "Events handled / s by outcome",
-            [target("sum by (outcome) (rate(farm_events_consumed_total[$__rate_interval]))", "{{outcome}}")],
+            [
+                target(
+                    "sum by (outcome) (rate(farm_events_consumed_total[$__rate_interval]))",
+                    "{{outcome}}",
+                )
+            ],
             "ops",
             stack=True,
             overrides=[
                 {
                     "matcher": {"id": "byName", "options": "dead_letter"},
-                    "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}],
+                    "properties": [
+                        {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}
+                    ],
                 },
                 {
                     "matcher": {"id": "byName", "options": "retry"},
-                    "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}],
+                    "properties": [
+                        {"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}
+                    ],
                 },
             ],
         ),
@@ -1075,7 +1190,11 @@ def infra() -> dict:
 
     b.row("Redis")
     b.add(
-        timeseries("Commands / s", [target("sum(rate(redis_commands_processed_total[$__rate_interval]))", "commands")], "ops"),
+        timeseries(
+            "Commands / s",
+            [target("sum(rate(redis_commands_processed_total[$__rate_interval]))", "commands")],
+            "ops",
+        ),
         8,
         7,
     )
@@ -1097,10 +1216,26 @@ def infra() -> dict:
         timeseries(
             "Collector throughput",
             [
-                target("sum(rate(otelcol_receiver_accepted_spans[$__rate_interval]))", "spans in", ref="A"),
-                target("sum(rate(otelcol_receiver_accepted_log_records[$__rate_interval]))", "log lines in", ref="B"),
-                target("sum(rate(otelcol_receiver_accepted_metric_points[$__rate_interval]))", "metric points in", ref="C"),
-                target("sum(rate(otelcol_receiver_failed_spans[$__rate_interval]))", "spans refused", ref="D"),
+                target(
+                    "sum(rate(otelcol_receiver_accepted_spans[$__rate_interval]))",
+                    "spans in",
+                    ref="A",
+                ),
+                target(
+                    "sum(rate(otelcol_receiver_accepted_log_records[$__rate_interval]))",
+                    "log lines in",
+                    ref="B",
+                ),
+                target(
+                    "sum(rate(otelcol_receiver_accepted_metric_points[$__rate_interval]))",
+                    "metric points in",
+                    ref="C",
+                ),
+                target(
+                    "sum(rate(otelcol_receiver_failed_spans[$__rate_interval]))",
+                    "spans refused",
+                    ref="D",
+                ),
             ],
             "ops",
         ),
@@ -1118,7 +1253,11 @@ def logs_traces() -> dict:
         "Search logs and traces. Click a trace id in a log line to open the trace, and a span to see its logs.",
         ["logs", "traces"],
     )
-    b.var_query("service", "Service", "label_values(http_server_request_duration_seconds_count, service_name)")
+    b.var_query(
+        "service",
+        "Service",
+        "label_values(http_server_request_duration_seconds_count, service_name)",
+    )
     b.vars.append(
         {
             "name": "search",
@@ -1128,7 +1267,12 @@ def logs_traces() -> dict:
             "current": {"text": "", "value": ""},
         }
     )
-    b.var_custom("level", "Level", ["INFO|WARNING|ERROR|CRITICAL", "WARNING|ERROR|CRITICAL", "ERROR|CRITICAL"], "INFO|WARNING|ERROR|CRITICAL")
+    b.var_custom(
+        "level",
+        "Level",
+        ["INFO|WARNING|ERROR|CRITICAL", "WARNING|ERROR|CRITICAL", "ERROR|CRITICAL"],
+        "INFO|WARNING|ERROR|CRITICAL",
+    )
     lsel = '{service_name=~"$service"}'
     b.row("Logs")
     b.add(
@@ -1136,7 +1280,7 @@ def logs_traces() -> dict:
             "Log lines by level",
             [
                 target(
-                    f'sum by (detected_level) (count_over_time({lsel} [$__auto]))',
+                    f"sum by (detected_level) (count_over_time({lsel} [$__auto]))",
                     "{{detected_level}}",
                     ds=LOKI,
                     queryType="range",
@@ -1146,11 +1290,15 @@ def logs_traces() -> dict:
             overrides=[
                 {
                     "matcher": {"id": "byName", "options": "error"},
-                    "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}],
+                    "properties": [
+                        {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}
+                    ],
                 },
                 {
                     "matcher": {"id": "byName", "options": "warn"},
-                    "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}],
+                    "properties": [
+                        {"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}
+                    ],
                 },
             ],
         )
@@ -1163,7 +1311,7 @@ def logs_traces() -> dict:
             "Errors by service",
             [
                 target(
-                    f'sum by (service_name) (count_over_time({{service_name=~"$service", severity_text=~"ERROR|CRITICAL"}} [$__auto]))',
+                    'sum by (service_name) (count_over_time({service_name=~"$service", severity_text=~"ERROR|CRITICAL"} [$__auto]))',
                     "{{service_name}}",
                     ds=LOKI,
                     queryType="range",
@@ -1225,7 +1373,7 @@ def logs_traces() -> dict:
                     "datasource": TEMPO,
                     "refId": "A",
                     "queryType": "traceql",
-                    "query": '{ span.http.route != nil && duration > 500ms }',
+                    "query": "{ span.http.route != nil && duration > 500ms }",
                     "limit": 20,
                     "tableType": "traces",
                 }
