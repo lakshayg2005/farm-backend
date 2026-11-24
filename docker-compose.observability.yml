@@ -1,0 +1,117 @@
+# Observability stack for the local Docker setup: metrics, logs and traces in Grafana.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
+#   Grafana: http://localhost:3001  (admin / admin; dashboards in the "Farm Platform" folder)
+#
+# Services send traces and metrics to the OpenTelemetry Collector (OTLP); the collector also tails
+# every container's log file. See infra/observability/README.md. Uses about 1.5 GB of RAM.
+
+x-otel: &otel
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+
+services:
+  # --- telemetry on for every service ---------------------------------------------------------
+  identity: {environment: *otel}
+  catalog: {environment: *otel}
+  land: {environment: *otel}
+  media: {environment: *otel}
+  media-worker: {environment: *otel}
+  order: {environment: *otel}
+  logistics: {environment: *otel}
+  logistics-worker: {environment: *otel}
+  notification: {environment: *otel}
+  gateway:
+    volumes:
+      - ./infra/observability/traefik.yml:/etc/traefik/traefik.yml:ro
+
+  # --- the stack --------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    user: "0"  # to read the Docker log files
+    environment:
+      FARM_LOG_GLOB: /var/lib/docker/containers/*/*-json.log
+      FARM_ENVIRONMENT: local
+    volumes:
+      - ./infra/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports: ["9090:9090"]
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.7.10
+    command: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true"]
+    environment: {LOKI_DATA: /loki}
+    volumes:
+      - ./infra/observability/loki.yaml:/etc/loki/loki.yaml:ro
+      - lokidata:/loki
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:3.1.1
+    command:
+      - -config.file=/etc/tempo/tempo.yaml
+      - -config.expand-env=true
+      - -live-store.shutdown_marker_dir=/var/tempo/live-store/shutdown-marker
+      - -live-store.wal.path=/var/tempo/live-store/traces
+    environment: {TEMPO_DATA: /var/tempo}
+    user: "0"
+    volumes:
+      - ./infra/observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempodata:/var/tempo
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.3.1
+    environment:
+      GF_SERVER_HTTP_PORT: "3001"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_USERS_DEFAULT_THEME: dark
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/farm-dashboards/farm-overview.json
+      PROMETHEUS_URL: http://prometheus:9090
+      LOKI_URL: http://loki:3100
+      TEMPO_URL: http://tempo:3200
+      FARM_DASHBOARDS: /etc/farm-dashboards
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/etc/farm-dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports: ["3001:3001"]
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.21.1
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.98.0
+    environment: {REDIS_ADDR: "redis://redis:6379"}
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.13.1
+    restart: unless-stopped
+
+volumes:
+  promdata:
+  lokidata:
+  tempodata:
+  grafanadata:

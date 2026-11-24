@@ -1,5 +1,6 @@
 """Passwords, OTP codes and token signing."""
 
+import asyncio
 import hashlib
 import hmac
 import secrets
@@ -24,6 +25,18 @@ def verify_password(password: str, password_hash: str) -> bool:
         return bcrypt.checkpw(password.encode(), password_hash.encode())
     except ValueError:
         return False
+
+
+# bcrypt is deliberately slow (~0.25-0.5 s of CPU). Called directly from an async route it would
+# freeze the whole service for that long, so every other identity request (token refresh, /me,
+# the gateway's auth checks) waits behind each sign-in. In a thread it runs off the event loop,
+# and since bcrypt releases the GIL several sign-ins use several cores.
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(password: str, password_hash: str) -> bool:
+    return await asyncio.to_thread(verify_password, password, password_hash)
 
 
 # Checked against when the phone is unknown, so a failed login takes the same time either way.

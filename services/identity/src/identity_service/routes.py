@@ -31,9 +31,9 @@ from identity_service.security import (
     decode_refresh_token,
     generate_otp,
     hash_otp,
-    hash_password,
+    hash_password_async,
     otp_matches,
-    verify_password,
+    verify_password_async,
 )
 from identity_service.service import (
     find_by_phone,
@@ -68,7 +68,7 @@ async def register(body: RegisterIn, session: AsyncSession = Depends(get_session
         name=body.name,
         phone=body.phone,
         email=body.email,
-        password_hash=hash_password(body.password),
+        password_hash=await hash_password_async(body.password),
         home_lat=body.home_lat,
         home_lng=body.home_lng,
         role_rows=[],
@@ -93,9 +93,9 @@ async def login(
 ) -> TokenOut:
     user = await find_by_phone(session, body.phone)
     if user is None:
-        verify_password(body.password, DUMMY_PASSWORD_HASH)
+        await verify_password_async(body.password, DUMMY_PASSWORD_HASH)
         raise Unauthorized("Wrong phone number or password", code="INVALID_CREDENTIALS")
-    if not verify_password(body.password, user.password_hash):
+    if not await verify_password_async(body.password, user.password_hash):
         raise Unauthorized("Wrong phone number or password", code="INVALID_CREDENTIALS")
     return await start_session(session, user, settings)
 

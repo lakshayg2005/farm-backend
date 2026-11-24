@@ -1,0 +1,28 @@
+# Gateway config with observability on (used instead of infra/traefik/traefik.yml when the
+# observability stack runs): Prometheus metrics on :8082 and OTLP traces, so every request's
+# trace starts at the gateway and continues into the service (W3C traceparent).
+entryPoints:
+  web:
+    address: ":80"
+  metrics:
+    address: ":8082"
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
+accessLog: {}
+log:
+  level: INFO
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]
+tracing:
+  serviceName: gateway
+  sampleRate: 1.0
+  otlp:
+    http:
+      endpoint: http://otel-collector:4318/v1/traces

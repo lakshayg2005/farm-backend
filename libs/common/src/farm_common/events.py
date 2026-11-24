@@ -9,10 +9,14 @@
   in a delay queue (<queue>.retry.<ms>ms, with x-message-ttl) that dead-letters it back to the
   main queue, so a waiting retry never holds up the consumer. See docs/events-dlq.md.
 - Handlers must be idempotent: use farm_common.outbox.mark_processed() with the event_id.
+- Tracing: publishing makes a PRODUCER span and puts its W3C `traceparent` in the message headers;
+  the consumer continues that trace with a CONSUMER span. Metrics: farm.events.published,
+  farm.events.consumed (by outcome: ok, retry, dead_letter) and farm.events.handler.duration.
 """
 
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,11 +30,44 @@ from aio_pika.abc import (
     AbstractIncomingMessage,
     AbstractRobustConnection,
 )
+from opentelemetry import propagate
+from opentelemetry.trace import SpanKind, Status, StatusCode
 from pydantic import BaseModel, Field
 
 from farm_common.log import get_correlation_id, set_correlation_id
+from farm_common.telemetry import context_from_correlation_id, get_meter, get_tracer
 
 logger = logging.getLogger(__name__)
+
+_tracer = get_tracer("farm_common.events")
+_meter = get_meter("farm_common.events")
+_published = _meter.create_counter(
+    "farm.events.published", unit="{event}", description="Events published to RabbitMQ"
+)
+_consumed = _meter.create_counter(
+    "farm.events.consumed",
+    unit="{event}",
+    description="Events handled by a consumer, by outcome (ok, retry, dead_letter)",
+)
+_handler_duration = _meter.create_histogram(
+    "farm.events.handler.duration",
+    unit="s",
+    description="Time a consumer took to handle one event",
+    explicit_bucket_boundaries_advisory=[
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1,
+        2.5,
+        5,
+        10,
+        30,
+    ],
+)
 
 EXCHANGE = "farm.events"
 RETRY_HEADER = "x-retries"
@@ -137,7 +174,24 @@ class RabbitEventBus:
     async def publish(self, event: Event) -> None:
         if self._exchange is None:
             raise RuntimeError("Call connect() before publishing")
-        await self._exchange.publish(_to_message(event), routing_key=event.type)
+        # From the outbox relay there is no active span: join the trace of the request that
+        # wrote the event (its correlation id is that trace id).
+        parent = context_from_correlation_id(event.correlation_id, event.event_id.int)
+        with _tracer.start_as_current_span(
+            f"publish {event.type}",
+            context=parent,
+            kind=SpanKind.PRODUCER,
+            attributes={
+                "messaging.system": "rabbitmq",
+                "messaging.operation.type": "send",
+                "messaging.destination.name": EXCHANGE,
+                "messaging.rabbitmq.destination.routing_key": event.type,
+                "messaging.message.id": str(event.event_id),
+                "farm.event.producer": event.producer,
+            },
+        ):
+            await self._exchange.publish(_to_message(event), routing_key=event.type)
+        _published.add(1, {"event.type": event.type, "service.producer": event.producer})
 
     async def subscribe(
         self, binding_keys: list[str], handler: Handler, name: str = "main"
@@ -176,9 +230,30 @@ class RabbitEventBus:
         async def on_message(message: AbstractIncomingMessage) -> None:
             event = Event.model_validate_json(message.body)
             set_correlation_id(event.correlation_id)
+            carrier = {k: str(v) for k, v in (message.headers or {}).items()}
+            parent = propagate.extract(carrier) if "traceparent" in carrier else None
+            parent = parent or context_from_correlation_id(event.correlation_id, event.event_id.int)
+            span_cm = _tracer.start_as_current_span(
+                f"process {event.type}",
+                context=parent,
+                kind=SpanKind.CONSUMER,
+                attributes={
+                    "messaging.system": "rabbitmq",
+                    "messaging.operation.type": "process",
+                    "messaging.destination.name": queue_name,
+                    "messaging.rabbitmq.destination.routing_key": event.type,
+                    "messaging.message.id": str(event.event_id),
+                    "farm.event.retries": retries_from_headers(message.headers),
+                },
+            )
+            span = span_cm.__enter__()
+            started = time.perf_counter()
+            outcome = "ok"
             try:
                 await handler(event)
             except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR, f"{type(exc).__name__}: {exc}"))
                 retries = retries_from_headers(message.headers)
                 decision = decide_retry(retries, self.max_retries, self.retry_delays)
                 if decision.action == "retry":
@@ -201,6 +276,7 @@ class RabbitEventBus:
                     retry = _to_message(event, retries=decision.attempt)
                     await channel.default_exchange.publish(retry, routing_key=target)
                     await message.ack()
+                    outcome = "retry"
                 else:
                     logger.error(
                         "Handler failed for %s (event_id=%s) after %d retries: %s: %s; "
@@ -214,22 +290,35 @@ class RabbitEventBus:
                         exc_info=True,
                     )
                     await message.reject(requeue=False)
+                    outcome = "dead_letter"
             else:
                 await message.ack()
             finally:
+                attrs = {"event.type": event.type, "queue": queue_name, "outcome": outcome}
+                _handler_duration.record(time.perf_counter() - started, attrs)
+                _consumed.add(1, attrs)
+                span.set_attribute("farm.event.outcome", outcome)
+                span_cm.__exit__(None, None, None)
                 set_correlation_id(None)
 
         await queue.consume(on_message)
 
 
 def _to_message(event: Event, retries: int = 0) -> aio_pika.Message:
+    headers: dict[str, str | int] = {
+        RETRY_HEADER: retries,
+        "x-correlation-id": event.correlation_id or "",
+    }
+    carrier: dict[str, str] = {}
+    propagate.inject(carrier)  # W3C traceparent of the active (publish) span, if any
+    headers.update(carrier)
     return aio_pika.Message(
         body=event.model_dump_json().encode(),
         message_id=str(event.event_id),
         type=event.type,
         content_type="application/json",
         delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-        headers={RETRY_HEADER: retries, "x-correlation-id": event.correlation_id or ""},
+        headers=headers,  # type: ignore[arg-type]
     )
 
 

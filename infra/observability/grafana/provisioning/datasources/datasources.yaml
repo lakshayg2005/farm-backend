@@ -1,0 +1,72 @@
+# Datasources, linked to each other:
+#   log line (trace_id)        -> its trace in Tempo
+#   span                        -> that service's logs for the trace in Loki, and its RED metrics
+#   latency histogram exemplar  -> the trace of that request
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: ${PROMETHEUS_URL}
+    isDefault: true
+    jsonData:
+      timeInterval: 10s
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: ${LOKI_URL}
+    jsonData:
+      maxLines: 2000
+      derivedFields:
+        - name: Trace
+          matcherType: label
+          matcherRegex: trace_id
+          datasourceUid: tempo
+          url: "$${__value.raw}"
+          urlDisplayLabel: Open trace
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: ${TEMPO_URL}
+    jsonData:
+      nodeGraph:
+        enabled: true
+      serviceMap:
+        datasourceUid: prometheus
+      search:
+        hide: false
+      traceQuery:
+        timeShiftEnabled: true
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        filterByTraceID: false
+        filterBySpanID: false
+        customQuery: true
+        query: '{service_name="$${__span.tags["service.name"]}"} | trace_id="$${__span.traceId}"'
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: -10m
+        spanEndTimeShift: 10m
+        tags:
+          - key: service.name
+            value: service_name
+        queries:
+          - name: Request rate
+            query: sum by (service_name) (rate(http_server_request_duration_seconds_count{$$__tags}[1m]))
+          - name: p95 latency
+            query: histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{$$__tags}[1m])))
+      streamingEnabled:
+        search: true

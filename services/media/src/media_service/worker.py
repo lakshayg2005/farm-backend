@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from farm_common.events import Event
 from farm_common.log import configure_logging
 from farm_common.outbox import add_event
+from farm_common.telemetry import setup_telemetry, traced_job
 from media_service.db import Media, OutboxEvent
 from media_service.geo import GEO_KINDS, GeoResolver, check_location
 from media_service.imaging import NotAnImage, process_image
@@ -117,6 +118,7 @@ def _finish(session: AsyncSession, media: Media) -> None:
     )
 
 
+@traced_job()
 async def process_media(ctx: dict[str, Any], media_id: str) -> str:
     """arq job: process one photo. Returns its final status (or SKIPPED)."""
     settings: MediaSettings = ctx["settings"]
@@ -171,6 +173,7 @@ async def startup(ctx: dict[str, Any]) -> None:
 
     settings = get_media_settings()
     configure_logging("media-worker", settings.log_level)
+    setup_telemetry("media-worker")
     ctx["settings"] = settings
     ctx["session_factory"] = get_session_factory()
     ctx["store"] = get_store()

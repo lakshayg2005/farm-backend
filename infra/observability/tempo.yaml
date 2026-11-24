@@ -1,0 +1,43 @@
+# Tempo 3.x, monolithic (target=all), local disk. Traces arrive over OTLP from the collector.
+# The metrics-generator turns spans into the service graph and span metrics and remote-writes
+# them to Prometheus. Started with -config.expand-env=true; TEMPO_DATA is the data directory.
+stream_over_http_enabled: true
+
+server:
+  http_listen_address: ${TEMPO_LISTEN:-0.0.0.0}
+  http_listen_port: 3200
+  # gRPC stays on all addresses: in single-binary mode the internal workers dial 127.0.0.1:9095
+  grpc_listen_port: 9095
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: ${TEMPO_LISTEN:-0.0.0.0}:4317
+        http:
+          endpoint: ${TEMPO_LISTEN:-0.0.0.0}:4318
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: ${TEMPO_DATA:-/var/tempo}/wal
+    local:
+      path: ${TEMPO_DATA:-/var/tempo}/blocks
+
+metrics_generator:
+  storage:
+    path: ${TEMPO_DATA:-/var/tempo}/generator/wal
+    remote_write:
+      - url: ${PROM_REMOTE_WRITE:-http://prometheus:9090/api/v1/write}
+        send_exemplars: true
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics, local-blocks]
+
+usage_report:
+  reporting_enabled: false
